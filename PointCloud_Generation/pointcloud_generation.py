@@ -488,29 +488,25 @@ class PointCloudGenerator:
         self.sam_predictor = sam_utils.load_sam_model()
         self.stereo_model = FoundationStereoModel(args)
         self.groundingdino_predictor = GroundindDinoPredictor()
-        
+
         # Initialize multiple cameras
         self.cameras = {}
         # Main camera
         self.cameras["main"] = ZedCamera(
-            args.use_png, 
-            camera_serial=getattr(args, 'camera_serial_main', None),
-            camera_id="main"
+            args.use_png,
+            camera_serial=getattr(args, "camera_serial_main", None),
+            camera_id="main",
         )
         # Batter camera (if configured)
-        if hasattr(args, 'use_png_batter') and args.use_png_batter:
+        if hasattr(args, "use_png_batter") and args.use_png_batter:
             self.cameras["batter"] = ZedCamera(
-                args.use_png_batter,
-                camera_serial=None,
-                camera_id="batter"
+                args.use_png_batter, camera_serial=None, camera_id="batter"
             )
-        elif hasattr(args, 'camera_serial_batter') and args.camera_serial_batter:
+        elif hasattr(args, "camera_serial_batter") and args.camera_serial_batter:
             self.cameras["batter"] = ZedCamera(
-                "",
-                camera_serial=args.camera_serial_batter,
-                camera_id="batter"
+                "", camera_serial=args.camera_serial_batter, camera_id="batter"
             )
-        
+
         # Keep backward compatibility
         self.zed = self.cameras["main"]
 
@@ -532,11 +528,13 @@ class PointCloudGenerator:
         """
         # Select camera
         if camera_id not in self.cameras:
-            raise ValueError(f"Camera '{camera_id}' not found. Available cameras: {list(self.cameras.keys())}")
-        
+            raise ValueError(
+                f"Camera '{camera_id}' not found. Available cameras: {list(self.cameras.keys())}"
+            )
+
         zed = self.cameras[camera_id]
         logger.info(f"Using camera: {camera_id}")
-        
+
         # blockage init
         if blockages is None:
             blockages = []
@@ -1270,6 +1268,6 @@ class PointCloudGenerator:
 
     def close(self):
         """Close all cameras."""
-        for camera_id, camera in self.cameras.items():
+        for _camera_id, camera in self.cameras.items():
             camera.close()
         cv2.destroyAllWindows()

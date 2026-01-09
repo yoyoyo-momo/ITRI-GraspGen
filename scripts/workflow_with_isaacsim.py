@@ -195,7 +195,7 @@ def main():
                 transform_config = args.transform_config_batter
             else:
                 transform_config = args.transform_config
-            
+
             # try five times
             detection_success = False
             while True:
