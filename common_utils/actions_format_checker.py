@@ -30,6 +30,15 @@ def is_actions_format_valid_v1028(actions) -> bool:
             if not isinstance(track, str):
                 logger.error(track)
                 return False
+        
+        # Validate camera field if present (optional field)
+        if "camera" in actions:
+            if not isinstance(actions["camera"], str):
+                logger.error(f"Invalid camera field: {actions['camera']}")
+                return False
+            if actions["camera"] not in ["main", "batter"]:
+                logger.warning(f"Unusual camera value: {actions['camera']}")
+        
         if not isinstance(actions["actions"], list):
             logger.error(actions["actions"])
             return False

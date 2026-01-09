@@ -8,19 +8,27 @@ import json
 class ZedCamera:
     """A class to interface with a ZED camera."""
 
-    def __init__(self, use_png="") -> None:
-        """Initializes the ZedCamera object."""
+    def __init__(self, use_png="", camera_serial=None, camera_id="main") -> None:
+        """Initializes the ZedCamera object.
+        
+        Args:
+            use_png: Path to PNG images for testing (empty string for real camera)
+            camera_serial: Serial number of specific ZED camera to open (None for any available)
+            camera_id: Identifier for this camera instance (e.g., "main", "batter")
+        """
         self.baseline: float
         self.camera: sl.Camera
         self.ext_ir1_to_color: np.ndarray
         self.K_left: np.ndarray
         self.W: int
         self.H: int
+        self.camera_id = camera_id
+        self.camera_serial = camera_serial
         self.left_image = sl.Mat()
         self.right_image = sl.Mat()
         self.png_dir = None
         if use_png == "":
-            print("use_png is empty-*+--------------")
+            print(f"Initializing {camera_id} camera (serial: {camera_serial})")
             self.initialize_zed()
         else:
             self.initialize_zed_using_existing_png(use_png)
@@ -33,10 +41,14 @@ class ZedCamera:
         init_params.camera_resolution = sl.RESOLUTION.HD720  # Use VGA video mode
         init_params.camera_fps = 30
         init_params.depth_mode = sl.DEPTH_MODE.NONE
+        
+        # Set specific camera by serial number if provided
+        if self.camera_serial is not None:
+            init_params.set_from_serial_number(self.camera_serial)
 
         err = self.camera.open(init_params)
         if err != sl.ERROR_CODE.SUCCESS:
-            raise RuntimeError(f"Failed to open ZED camera: {err}")
+            raise RuntimeError(f"Failed to open ZED camera {self.camera_id} (serial: {self.camera_serial}): {err}")
 
         info = self.camera.get_camera_information()
         cam_params = info.camera_configuration.calibration_parameters
@@ -101,4 +113,6 @@ class ZedCamera:
 
     def close(self) -> None:
         """Closes the ZED camera."""
-        self.camera.close()
+        if self.png_dir is None and hasattr(self, 'camera') and self.camera is not None:
+            self.camera.close()
+            print(f"Closed {self.camera_id} camera")

@@ -119,6 +119,30 @@ def parse_args():
         default="",
         help="Use exisiting images at sample_data/zed_images instead of the real zed camera",
     )
+    parser.add_argument(
+        "--use-png-batter",
+        type=str,
+        default="",
+        help="Use existing images for batter camera",
+    )
+    parser.add_argument(
+        "--camera-serial-main",
+        type=int,
+        default=None,
+        help="Serial number of main ZED camera",
+    )
+    parser.add_argument(
+        "--camera-serial-batter",
+        type=int,
+        default=None,
+        help="Serial number of batter ZED camera",
+    )
+    parser.add_argument(
+        "--transform-config-batter",
+        type=str,
+        default="batter.json",
+        help="Transform config for batter camera",
+    )
     return parser.parse_args()
 
 
@@ -164,6 +188,14 @@ def main():
             # start to generate pointcloud
             scene_data = None
             track_names = list(actions["track"])
+            # Get camera selection from actions, default to "main"
+            camera_id = actions.get("camera", "main")
+            # Get transform config for this camera
+            if camera_id == "batter":
+                transform_config = args.transform_config_batter
+            else:
+                transform_config = args.transform_config
+            
             # try five times
             detection_success = False
             while True:
@@ -176,6 +208,7 @@ def main():
                             need_confirm=not args.no_confirm,
                             blockages=blockages,
                             valid_region=valid_region,
+                            camera_id=camera_id,
                         )
                         detection_success = True
                         break  # Success
@@ -194,7 +227,7 @@ def main():
             logger.info(scene_data)
             # transform
             scene_data = silent_transform_multiple_obj_with_name_dict(
-                scene_data, args.transform_config
+                scene_data, transform_config
             )
             scene_data = create_obstacle_info(scene_data, actions["extra_obstacles"])
             # GraspGen

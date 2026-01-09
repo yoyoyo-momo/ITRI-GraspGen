@@ -488,7 +488,31 @@ class PointCloudGenerator:
         self.sam_predictor = sam_utils.load_sam_model()
         self.stereo_model = FoundationStereoModel(args)
         self.groundingdino_predictor = GroundindDinoPredictor()
-        self.zed = ZedCamera(args.use_png)
+        
+        # Initialize multiple cameras
+        self.cameras = {}
+        # Main camera
+        self.cameras["main"] = ZedCamera(
+            args.use_png, 
+            camera_serial=getattr(args, 'camera_serial_main', None),
+            camera_id="main"
+        )
+        # Batter camera (if configured)
+        if hasattr(args, 'use_png_batter') and args.use_png_batter:
+            self.cameras["batter"] = ZedCamera(
+                args.use_png_batter,
+                camera_serial=None,
+                camera_id="batter"
+            )
+        elif hasattr(args, 'camera_serial_batter') and args.camera_serial_batter:
+            self.cameras["batter"] = ZedCamera(
+                "",
+                camera_serial=args.camera_serial_batter,
+                camera_id="batter"
+            )
+        
+        # Keep backward compatibility
+        self.zed = self.cameras["main"]
 
     def generate_pointcloud(
         self,
@@ -496,13 +520,23 @@ class PointCloudGenerator:
         need_confirm=True,
         blockages: list = None,
         valid_region: list = None,
+        camera_id: str = "main",
     ):
         """
         bloackages[
             [minX, minY, maxX, maxY],
             [minX, minY, maxX, maxY], ...
         ]
+        Args:
+            camera_id: ID of the camera to use ("main", "batter", etc.)
         """
+        # Select camera
+        if camera_id not in self.cameras:
+            raise ValueError(f"Camera '{camera_id}' not found. Available cameras: {list(self.cameras.keys())}")
+        
+        zed = self.cameras[camera_id]
+        logger.info(f"Using camera: {camera_id}")
+        
         # blockage init
         if blockages is None:
             blockages = []
@@ -515,7 +549,7 @@ class PointCloudGenerator:
 
         # Capture image
         try:
-            zed_status, left_image, right_image = self.zed.capture_images()
+            zed_status, left_image, right_image = zed.capture_images()
         except Exception as e:
             logger.exception(f"error{e}")
             return RuntimeError
@@ -577,7 +611,7 @@ class PointCloudGenerator:
         left_gray = cv2.cvtColor(left_image.get_data(), cv2.COLOR_BGRA2GRAY)
         right_gray = cv2.cvtColor(right_image.get_data(), cv2.COLOR_BGRA2GRAY)
         depth, (H_scaled, W_scaled) = self.stereo_model.run_inference(
-            left_gray, right_gray, self.zed.K_left, self.zed.baseline
+            left_gray, right_gray, zed.K_left, zed.baseline
         )
 
         # GroundingDINO detection
@@ -612,7 +646,7 @@ class PointCloudGenerator:
             depth,
             color_np_org,
             named_masks,
-            self.zed.K_left,
+            zed.K_left,
             self.scale,
             self.max_depth,
         )
@@ -1235,5 +1269,7 @@ class PointCloudGenerator:
             return None
 
     def close(self):
-        self.zed.close()
+        """Close all cameras."""
+        for camera_id, camera in self.cameras.items():
+            camera.close()
         cv2.destroyAllWindows()
