@@ -1,0 +1,17 @@
+{
+    "camera": "batter",
+    "blockages": [],
+    "track": ["black cup"],
+    "extra_obstacles": {},
+    "actions":
+    [
+        {
+            "target_name": "black cup",
+            "qualifier": "small_cup_qualifier",
+            "action": "grab_and_pour_and_place_back_curobo",
+            "args": [
+                [0.0, 1.0, 0.15]
+            ]
+        }
+    ]
+}
