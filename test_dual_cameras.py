@@ -1,25 +1,31 @@
 #!/usr/bin/env python3
 """
-Test script to verify dual camera setup
+Test script to verify dual camera setup and run GraspGen
 Usage:
     # Test with real cameras
     python test_dual_cameras.py --camera-serial-main 12345678 --camera-serial-batter 87654321
 
     # Test with PNG images
     python test_dual_cameras.py --use-png-main "scene1" --use-png-batter "scene2"
+
+    # Test GraspGen on both cameras
+    python test_dual_cameras.py --use-png-main "scene1" --use-png-batter "scene2" --test-graspgen
 """
 
 import argparse
 import cv2
 import logging
+import numpy as np
 from PointCloud_Generation.zed_utils import ZedCamera
+from common_utils.graspgen_utils import GraspGenerator
+from common_utils import config
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Test dual camera setup")
+    parser = argparse.ArgumentParser(description="Test dual camera setup and GraspGen")
     parser.add_argument(
         "--camera-serial-main",
         type=int,
@@ -44,7 +50,154 @@ def parse_args():
         default="",
         help="Use PNG images for batter camera (path in sample_data/zed_images/)",
     )
+    parser.add_argument(
+        "--test-graspgen",
+        action="store_true",
+        help="Test GraspGen on both cameras",
+    )
+    parser.add_argument(
+        "--gripper_config",
+        type=str,
+        default=str(config.GRIPPER_CFG),
+        help="Path to gripper configuration YAML file",
+    )
+    parser.add_argument(
+        "--grasp_threshold",
+        type=float,
+        default=0.70,
+        help="Threshold for valid grasps",
+    )
+    parser.add_argument(
+        "--num_grasps",
+        type=int,
+        default=200,
+        help="Number of grasps to generate",
+    )
+    parser.add_argument(
+        "--topk_num_grasps",
+        type=int,
+        default=5,
+        help="Number of top grasps to return",
+    )
     return parser.parse_args()
+
+
+def test_graspgen_on_dual_cameras(cameras, args):
+    """Test GraspGen on point clouds from both cameras"""
+    logger.info("\n" + "=" * 60)
+    logger.info("TESTING GRASPGEN ON DUAL CAMERAS")
+    logger.info("=" * 60)
+
+    # Initialize GraspGen
+    logger.info("Initializing GraspGen...")
+    grasp_generator = GraspGenerator(
+        args.gripper_config, args.grasp_threshold, args.num_grasps, args.topk_num_grasps
+    )
+    logger.info("✓ GraspGen initialized\n")
+
+    results = {}
+
+    for camera_id in ["main", "batter"]:
+        logger.info(f"--- Testing {camera_id.upper()} camera ---")
+        camera = cameras[camera_id]
+
+        # Capture images
+        status, left_image, right_image = camera.capture_images()
+
+        if status == 0:
+            logger.error(f"✗ Failed to capture from {camera_id} camera\n")
+            continue
+
+        # Get depth and generate point cloud
+        logger.info(f"Generating point cloud from {camera_id} camera...")
+
+        # Get depth data
+        depth = camera.get_depth()
+        if depth is None:
+            logger.error(f"✗ Failed to get depth from {camera_id} camera\n")
+            continue
+
+        # Get XYZ map
+        xyz_map = camera.get_xyz_map()
+        if xyz_map is None:
+            logger.error(f"✗ Failed to get XYZ map from {camera_id} camera\n")
+            continue
+
+        # Flatten and filter point cloud
+        pointcloud = xyz_map.reshape(-1, 3)
+
+        # Remove invalid points (NaN, Inf)
+        valid_mask = ~np.isnan(pointcloud).any(axis=1) & ~np.isinf(pointcloud).any(
+            axis=1
+        )
+        pointcloud = pointcloud[valid_mask]
+
+        # Filter by depth range (0.1m to 3.0m)
+        depth_mask = (pointcloud[:, 2] > 0.1) & (pointcloud[:, 2] < 3.0)
+        pointcloud = pointcloud[depth_mask]
+
+        if len(pointcloud) < 100:
+            logger.warning(
+                f"⚠ Too few valid points ({len(pointcloud)}) from {camera_id} camera\n"
+            )
+            continue
+
+        logger.info(f"✓ Generated point cloud with {len(pointcloud)} points")
+
+        # Run GraspGen
+        logger.info(f"Running GraspGen inference on {camera_id} camera...")
+        grasp = grasp_generator.auto_select_valid_cup_grasp(pointcloud)
+
+        if grasp is not None:
+            grasp_pos = grasp[:3, 3]
+            logger.info(f"✓ Valid grasp found from {camera_id} camera!")
+            logger.info(
+                f"  Grasp position: [{grasp_pos[0]:.3f}, {grasp_pos[1]:.3f}, {grasp_pos[2]:.3f}]"
+            )
+            logger.info(f"  Grasp transform:\n{grasp}\n")
+
+            results[camera_id] = {
+                "grasp": grasp,
+                "grasp_pos": grasp_pos,
+                "num_points": len(pointcloud),
+                "success": True,
+            }
+        else:
+            logger.warning(f"✗ No valid grasp found from {camera_id} camera\n")
+            results[camera_id] = {"success": False}
+
+    # Summary
+    logger.info("=" * 60)
+    logger.info("SUMMARY")
+    logger.info("=" * 60)
+
+    if len([r for r in results.values() if r.get("success")]) == 2:
+        logger.info("✓ Both cameras successfully generated valid grasps!")
+
+        main_pos = results["main"]["grasp_pos"]
+        batter_pos = results["batter"]["grasp_pos"]
+        pos_diff = np.linalg.norm(main_pos - batter_pos)
+
+        logger.info(
+            f"\nGrasp position difference: {pos_diff:.4f}m ({pos_diff * 100:.2f}cm)"
+        )
+        logger.info(
+            f"Main camera:    [{main_pos[0]:.3f}, {main_pos[1]:.3f}, {main_pos[2]:.3f}]"
+        )
+        logger.info(
+            f"Batter camera:  [{batter_pos[0]:.3f}, {batter_pos[1]:.3f}, {batter_pos[2]:.3f}]"
+        )
+
+    elif len([r for r in results.values() if r.get("success")]) == 1:
+        logger.info("⚠ Only one camera generated a valid grasp")
+        if results.get("main", {}).get("success"):
+            logger.info("✓ Main camera succeeded")
+        else:
+            logger.info("✓ Batter camera succeeded")
+    else:
+        logger.info("✗ Neither camera generated a valid grasp")
+
+    return results
 
 
 def main():
@@ -87,6 +240,21 @@ def main():
     logger.info("Both cameras are OPEN and READY!")
     logger.info("=" * 60)
 
+    # If testing GraspGen, run the test and exit
+    if args.test_graspgen:
+        test_graspgen_on_dual_cameras(cameras, args)
+
+        # Cleanup
+        logger.info("\n" + "=" * 60)
+        logger.info("Closing cameras...")
+        logger.info("=" * 60)
+        for camera_id, camera in cameras.items():
+            camera.close()
+            logger.info(f"✓ Closed {camera_id} camera")
+
+        logger.info("\nGraspGen dual camera test completed!")
+        return
+
     # Test capturing from both cameras
     cv2.namedWindow("Camera Test")
 
@@ -100,7 +268,7 @@ def main():
         # Capture images
         status, left_image, right_image = camera.capture_images()
 
-        if status == 0:  # sl.ERROR_CODE.SUCCESS
+        if status != 0:  # sl.ERROR_CODE.SUCCESS
             # Get image data
             left_img = left_image.get_data()[:, :, :3]  # Drop alpha channel
 
