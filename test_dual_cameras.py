@@ -16,7 +16,6 @@ import argparse
 import cv2
 import logging
 import numpy as np
-import torch
 from PointCloud_Generation.zed_utils import ZedCamera
 from PointCloud_Generation.pointcloud_generation import PointCloudGenerator
 from common_utils.graspgen_utils import GraspGenerator
@@ -105,16 +104,16 @@ def test_graspgen_on_dual_cameras(pc_generator, args):
         try:
             # Use PointCloudGenerator to get point cloud from camera
             logger.info(f"Generating point cloud from {camera_id} camera...")
-            
+
             # Generate point cloud for "cup" target from specified camera
             scene_data = pc_generator.generate_pointcloud(
-                target_names=["cup"],
-                need_confirm=False,
-                camera_id=camera_id
+                target_names=["cup"], need_confirm=False, camera_id=camera_id
             )
 
             if scene_data is None or "object_infos" not in scene_data:
-                logger.warning(f"⚠ Failed to generate point cloud from {camera_id} camera\n")
+                logger.warning(
+                    f"⚠ Failed to generate point cloud from {camera_id} camera\n"
+                )
                 continue
 
             # Get the cup point cloud (first object)
@@ -151,18 +150,18 @@ def test_graspgen_on_dual_cameras(pc_generator, args):
                 )
 
                 results[camera_id] = {
-                    'grasp': grasp,
-                    'grasp_pos': grasp_pos,
-                    'num_points': len(pointcloud),
-                    'success': True
+                    "grasp": grasp,
+                    "grasp_pos": grasp_pos,
+                    "num_points": len(pointcloud),
+                    "success": True,
                 }
             else:
                 logger.warning(f"✗ No valid grasp found from {camera_id} camera\n")
-                results[camera_id] = {'success': False}
+                results[camera_id] = {"success": False}
 
         except Exception as e:
             logger.error(f"✗ Error processing {camera_id} camera: {e}\n")
-            results[camera_id] = {'success': False}
+            results[camera_id] = {"success": False}
 
     # Summary
     logger.info("=" * 60)
@@ -224,7 +223,7 @@ def main():
 
     # Test capturing from both cameras (original functionality)
     cameras = {}
-    
+
     # Initialize main camera
     logger.info("=" * 60)
     logger.info("Initializing MAIN camera...")
