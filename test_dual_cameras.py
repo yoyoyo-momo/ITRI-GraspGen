@@ -16,7 +16,9 @@ import argparse
 import cv2
 import logging
 import numpy as np
+import torch
 from PointCloud_Generation.zed_utils import ZedCamera
+from PointCloud_Generation.pointcloud_generation import PointCloudGenerator
 from common_utils.graspgen_utils import GraspGenerator
 from common_utils import config
 
@@ -82,8 +84,8 @@ def parse_args():
     return parser.parse_args()
 
 
-def test_graspgen_on_dual_cameras(cameras, args):
-    """Test GraspGen on point clouds from both cameras"""
+def test_graspgen_on_dual_cameras(pc_generator, args):
+    """Test GraspGen on point clouds from both cameras using PointCloudGenerator"""
     logger.info("\n" + "=" * 60)
     logger.info("TESTING GRASPGEN ON DUAL CAMERAS")
     logger.info("=" * 60)
@@ -99,72 +101,68 @@ def test_graspgen_on_dual_cameras(cameras, args):
 
     for camera_id in ["main", "batter"]:
         logger.info(f"--- Testing {camera_id.upper()} camera ---")
-        camera = cameras[camera_id]
 
-        # Capture images
-        status, left_image, right_image = camera.capture_images()
-
-        if status == 0:
-            logger.error(f"✗ Failed to capture from {camera_id} camera\n")
-            continue
-
-        # Get depth and generate point cloud
-        logger.info(f"Generating point cloud from {camera_id} camera...")
-
-        # Get depth data
-        depth = camera.get_depth()
-        if depth is None:
-            logger.error(f"✗ Failed to get depth from {camera_id} camera\n")
-            continue
-
-        # Get XYZ map
-        xyz_map = camera.get_xyz_map()
-        if xyz_map is None:
-            logger.error(f"✗ Failed to get XYZ map from {camera_id} camera\n")
-            continue
-
-        # Flatten and filter point cloud
-        pointcloud = xyz_map.reshape(-1, 3)
-
-        # Remove invalid points (NaN, Inf)
-        valid_mask = ~np.isnan(pointcloud).any(axis=1) & ~np.isinf(pointcloud).any(
-            axis=1
-        )
-        pointcloud = pointcloud[valid_mask]
-
-        # Filter by depth range (0.1m to 3.0m)
-        depth_mask = (pointcloud[:, 2] > 0.1) & (pointcloud[:, 2] < 3.0)
-        pointcloud = pointcloud[depth_mask]
-
-        if len(pointcloud) < 100:
-            logger.warning(
-                f"⚠ Too few valid points ({len(pointcloud)}) from {camera_id} camera\n"
+        try:
+            # Use PointCloudGenerator to get point cloud from camera
+            logger.info(f"Generating point cloud from {camera_id} camera...")
+            
+            # Generate point cloud for "cup" target from specified camera
+            scene_data = pc_generator.generate_pointcloud(
+                target_names=["cup"],
+                need_confirm=False,
+                camera_id=camera_id
             )
-            continue
 
-        logger.info(f"✓ Generated point cloud with {len(pointcloud)} points")
+            if scene_data is None or "object_infos" not in scene_data:
+                logger.warning(f"⚠ Failed to generate point cloud from {camera_id} camera\n")
+                continue
 
-        # Run GraspGen
-        logger.info(f"Running GraspGen inference on {camera_id} camera...")
-        grasp = grasp_generator.auto_select_valid_cup_grasp(pointcloud)
+            # Get the cup point cloud (first object)
+            if not scene_data["object_infos"] or len(scene_data["object_infos"]) == 0:
+                logger.warning(f"⚠ No objects detected in {camera_id} camera\n")
+                continue
 
-        if grasp is not None:
-            grasp_pos = grasp[:3, 3]
-            logger.info(f"✓ Valid grasp found from {camera_id} camera!")
-            logger.info(
-                f"  Grasp position: [{grasp_pos[0]:.3f}, {grasp_pos[1]:.3f}, {grasp_pos[2]:.3f}]"
-            )
-            logger.info(f"  Grasp transform:\n{grasp}\n")
+            # Extract point cloud
+            if isinstance(scene_data["object_infos"], list):
+                # List format
+                object_info = scene_data["object_infos"][0]
+                pointcloud = object_info["points"]
+            else:
+                # Dict format
+                pointcloud = list(scene_data["object_infos"].values())[0]["points"]
 
-            results[camera_id] = {
-                "grasp": grasp,
-                "grasp_pos": grasp_pos,
-                "num_points": len(pointcloud),
-                "success": True,
-            }
-        else:
-            logger.warning(f"✗ No valid grasp found from {camera_id} camera\n")
-            results[camera_id] = {"success": False}
+            if len(pointcloud) < 100:
+                logger.warning(
+                    f"⚠ Too few valid points ({len(pointcloud)}) from {camera_id} camera\n"
+                )
+                continue
+
+            logger.info(f"✓ Generated point cloud with {len(pointcloud)} points")
+
+            # Run GraspGen
+            logger.info(f"Running GraspGen inference on {camera_id} camera...")
+            grasp = grasp_generator.auto_select_valid_cup_grasp(pointcloud)
+
+            if grasp is not None:
+                grasp_pos = grasp[:3, 3]
+                logger.info(f"✓ Valid grasp found from {camera_id} camera!")
+                logger.info(
+                    f"  Grasp position: [{grasp_pos[0]:.3f}, {grasp_pos[1]:.3f}, {grasp_pos[2]:.3f}]"
+                )
+
+                results[camera_id] = {
+                    'grasp': grasp,
+                    'grasp_pos': grasp_pos,
+                    'num_points': len(pointcloud),
+                    'success': True
+                }
+            else:
+                logger.warning(f"✗ No valid grasp found from {camera_id} camera\n")
+                results[camera_id] = {'success': False}
+
+        except Exception as e:
+            logger.error(f"✗ Error processing {camera_id} camera: {e}\n")
+            results[camera_id] = {'success': False}
 
     # Summary
     logger.info("=" * 60)
@@ -203,8 +201,30 @@ def test_graspgen_on_dual_cameras(cameras, args):
 def main():
     args = parse_args()
 
-    cameras = {}
+    # Initialize PointCloudGenerator
+    logger.info("=" * 60)
+    logger.info("Initializing PointCloudGenerator...")
+    logger.info("=" * 60)
+    try:
+        pc_generator = PointCloudGenerator(args)
+        logger.info("✓ PointCloudGenerator initialized successfully")
+    except Exception as e:
+        logger.error(f"✗ Failed to initialize PointCloudGenerator: {e}")
+        return
 
+    logger.info("\n" + "=" * 60)
+    logger.info("Both cameras are OPEN and READY!")
+    logger.info("=" * 60)
+
+    # If testing GraspGen, run the test and exit
+    if args.test_graspgen:
+        test_graspgen_on_dual_cameras(pc_generator, args)
+        logger.info("\nGraspGen dual camera test completed!")
+        return
+
+    # Test capturing from both cameras (original functionality)
+    cameras = {}
+    
     # Initialize main camera
     logger.info("=" * 60)
     logger.info("Initializing MAIN camera...")
@@ -236,26 +256,6 @@ def main():
         cameras["main"].close()
         return
 
-    logger.info("\n" + "=" * 60)
-    logger.info("Both cameras are OPEN and READY!")
-    logger.info("=" * 60)
-
-    # If testing GraspGen, run the test and exit
-    if args.test_graspgen:
-        test_graspgen_on_dual_cameras(cameras, args)
-
-        # Cleanup
-        logger.info("\n" + "=" * 60)
-        logger.info("Closing cameras...")
-        logger.info("=" * 60)
-        for camera_id, camera in cameras.items():
-            camera.close()
-            logger.info(f"✓ Closed {camera_id} camera")
-
-        logger.info("\nGraspGen dual camera test completed!")
-        return
-
-    # Test capturing from both cameras
     cv2.namedWindow("Camera Test")
 
     current_camera = "main"
