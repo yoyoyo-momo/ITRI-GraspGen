@@ -18,7 +18,7 @@ import logging
 import numpy as np
 from PointCloud_Generation.zed_utils import ZedCamera
 from PointCloud_Generation.pointcloud_generation import PointCloudGenerator
-from common_utils.graspgen_utils import GraspGenerator
+from common_utils.graspgen_utils import GraspGeneratorUI
 from common_utils import config
 
 logging.basicConfig(level=logging.INFO)
@@ -80,6 +80,17 @@ def parse_args():
         default=5,
         help="Number of top grasps to return",
     )
+    parser.add_argument(
+        "--no_confirm",
+        action="store_true",
+        help="Disable user confirmation prompts in GraspGen",
+    )
+    parser.add_argument(
+        "--erosion_iterations",
+        type=int,
+        default=1,  # can be 6
+        help="Number of erosion iterations for the SAM mask.",
+    )
     return parser.parse_args()
 
 
@@ -89,10 +100,16 @@ def test_graspgen_on_dual_cameras(pc_generator, args):
     logger.info("TESTING GRASPGEN ON DUAL CAMERAS")
     logger.info("=" * 60)
 
+    pc_generator = PointCloudGenerator(args)
+
     # Initialize GraspGen
     logger.info("Initializing GraspGen...")
-    grasp_generator = GraspGenerator(
-        args.gripper_config, args.grasp_threshold, args.num_grasps, args.topk_num_grasps
+    grasp_generator = GraspGeneratorUI(
+        args.gripper_config,
+        args.grasp_threshold,
+        args.num_grasps,
+        args.topk_num_grasps,
+        not args.no_confirm,
     )
     logger.info("✓ GraspGen initialized\n")
 
@@ -140,7 +157,7 @@ def test_graspgen_on_dual_cameras(pc_generator, args):
 
             # Run GraspGen
             logger.info(f"Running GraspGen inference on {camera_id} camera...")
-            grasp = grasp_generator.auto_select_valid_cup_grasp(pointcloud)
+            grasp = grasp_generator.generate_grasp(pointcloud)
 
             if grasp is not None:
                 grasp_pos = grasp[:3, 3]
