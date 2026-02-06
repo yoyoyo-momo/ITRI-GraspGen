@@ -491,6 +491,7 @@ def open_grip(
     full_act = {"moves": moves, "obstacles": obstacles}
     return full_act
 
+
 def grab_and_place_curobo(
     target_name: str, grasp: np.array, args: list, scene_data: dict
 ) -> dict:
@@ -510,7 +511,11 @@ def grab_and_place_curobo(
     grasp_position = [p + f * 0.048 for p, f in zip(position, front, strict=False)]
 
     release_position = args[0]
-    after_release_position = [release_position[0] - 0.05] + [release_position[1] - 0.05] + [release_position[2]]
+    after_release_position = (
+        [release_position[0] - 0.05]
+        + [release_position[1] - 0.05]
+        + [release_position[2]]
+    )
     moves.append(
         {
             "type": "arm",
@@ -529,7 +534,7 @@ def grab_and_place_curobo(
         }
     )
     moves.append({"type": "gripper", "grip_type": "close", "wait_time": 1.0})
-    
+
     moves.append(
         {
             "type": "arm",
