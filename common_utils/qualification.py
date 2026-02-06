@@ -82,11 +82,15 @@ def small_cube_qualifier(grasp: np.array, mass_center, obj_std):
         return False
     return True
 
+def teapot_qualifier(grasp: np.array, mass_center, obj_std):
+    return True
+
 
 qualifier_dict = {
     "small_cup_qualifier": small_cup_qualifier,
     "cup_qualifier": cup_qualifier,
     "small_cube_qualifier": small_cube_qualifier,
+    "teapot_qualifier": teapot_qualifier,
 }
 
 
