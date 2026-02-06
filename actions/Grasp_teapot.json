@@ -1,0 +1,34 @@
+{
+    "blockages":
+    [
+        [915, 242, 1279, 719],
+        [413, 205, 500, 300]
+    ],
+    "valid_region":[363, 238, 846, 504],
+    "track": ["teapot"],
+    "extra_obstacles": {
+        "splatteu": {
+            "max": [
+                0.30579440851407563,
+                1.032104676590586,
+                0.17495628388902777
+            ],
+            "min": [
+                0.22777417701560246,
+                0.70037035913891,
+                0.01896955463899678
+            ]
+        }
+    },
+    "actions":
+    [
+        {
+            "target_name": "teapot",
+            "qualifier": "teapot_qualifier",
+            "action": "grab_and_place_curobo",
+            "args": [
+                [0.7, 0.4, 0.22]
+            ]
+        }
+    ]
+}
