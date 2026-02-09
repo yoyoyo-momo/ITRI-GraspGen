@@ -155,6 +155,18 @@ def teapot_handle_qualifier(
 
     return True
 
+def teapot_qualifier(grasp: np.array, min_point: np.ndarray, max_point: np.ndarray):
+    """Qualifier for grasping teapot (body or handle)"""
+    position = grasp[:3, 3].tolist()
+    left, up, front = get_left_up_and_front(grasp)
+
+    # Prevent top-down approach
+    if up[2] < 0.44:
+        return False
+
+    # Prefer handle-like approach (side approach)
+    # return teapot_handle_qualifier(grasp, min_point, max_point)
+    return True
 
 qualifier_dict = {
     "small_cup_qualifier": small_cup_qualifier,
@@ -162,6 +174,7 @@ qualifier_dict = {
     "small_cube_qualifier": small_cube_qualifier,
     "teapot_body_qualifier": teapot_body_qualifier,
     "teapot_handle_qualifier": teapot_handle_qualifier,
+    "teapot_qualifier": teapot_qualifier,
 }
 
 
