@@ -82,70 +82,77 @@ def small_cube_qualifier(grasp: np.array, mass_center, obj_std):
         return False
     return True
 
-def teapot_body_qualifier(grasp: np.array, min_point: np.ndarray, max_point: np.ndarray):
+
+def teapot_body_qualifier(
+    grasp: np.array, min_point: np.ndarray, max_point: np.ndarray
+):
     """Qualifier for grasping teapot body (top-down on the barrel)"""
     position = grasp[:3, 3].tolist()
     left, up, front = get_left_up_and_front(grasp)
-    
+
     center = (min_point + max_point) / 2.0
     size = max_point - min_point
-    
+
     # Prefer downward approach but be lenient
     if front[2] > -0.2:  # relaxed from -0.5
         return False
-    
+
     # Gripper orientation check - more lenient
     if up[2] < 0.3:  # relaxed from 0.6
         return False
-    
+
     # Keep grasp somewhat near center in XY but be generous
     dist_xy = np.linalg.norm(np.array(position[:2]) - center[:2])
     max_radius = np.linalg.norm(size[:2]) / 1.5  # relaxed from /3.0 - allow outer half
     if dist_xy > max_radius:
         return False
-    
+
     # Wide Z band
     min_z = min_point[2] + size[2] * 0.1  # relaxed from 0.25
     max_z = max_point[2]  # relaxed - allow top
     if position[2] < min_z or position[2] > max_z:
         return False
-    
+
     return True
 
 
-def teapot_handle_qualifier(grasp: np.array, min_point: np.ndarray, max_point: np.ndarray):
+def teapot_handle_qualifier(
+    grasp: np.array, min_point: np.ndarray, max_point: np.ndarray
+):
     """Qualifier for grasping teapot handle (side approach)"""
     position = grasp[:3, 3].tolist()
     left, up, front = get_left_up_and_front(grasp)
-    
+
     center = (min_point + max_point) / 2.0
     size = max_point - min_point
-    
+
     # Prefer side/horizontal approach but be lenient
     front_xy_norm = np.linalg.norm(front[:2])
     if front_xy_norm < 0.15:  # relaxed from 0.3 - mostly vertical, reject
         return False
-    
+
     # Allow wider range of approach angles
     if front[2] < -0.7 or front[2] > 0.5:  # relaxed from -0.3 to 0.3
         return False
-    
+
     # Gripper orientation - very lenient
     if up[2] < 0.0:  # relaxed from 0.3 - just not completely upside down
         return False
-    
+
     # Keep grasp at outer edges but be generous
     dist_xy = np.linalg.norm(np.array(position[:2]) - center[:2])
-    min_radius = np.linalg.norm(size[:2]) / 6.0  # relaxed from /4.0 - outer sixth is fine
+    min_radius = (
+        np.linalg.norm(size[:2]) / 6.0
+    )  # relaxed from /4.0 - outer sixth is fine
     if dist_xy < min_radius:
         return False
-    
+
     # Wide Z band
     min_z = min_point[2] + size[2] * 0.1  # relaxed from 0.2
     max_z = max_point[2] - size[2] * 0.1  # relaxed from 0.2
     if position[2] < min_z or position[2] > max_z:
         return False
-    
+
     return True
 
 
