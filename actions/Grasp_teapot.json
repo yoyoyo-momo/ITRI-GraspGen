@@ -24,7 +24,7 @@
     [
         {
             "target_name": "teapot",
-            "qualifier": "teapot_body_qualifier",
+            "qualifier": "cup_qualifier",
             "action": "grab_and_place_curobo",
             "args": [
                 [0.7, 0.4, 0.22]

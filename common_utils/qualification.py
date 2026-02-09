@@ -90,23 +90,23 @@ def teapot_body_qualifier(grasp: np.array, min_point: np.ndarray, max_point: np.
     center = (min_point + max_point) / 2.0
     size = max_point - min_point
     
-    # Prefer top-down approach
-    if front[2] > -0.5:
+    # Prefer downward approach but be lenient
+    if front[2] > -0.2:  # relaxed from -0.5
         return False
     
-    # Gripper should be mostly upright
-    if up[2] < 0.6:
+    # Gripper orientation check - more lenient
+    if up[2] < 0.3:  # relaxed from 0.6
         return False
     
-    # Keep grasp near center in XY (avoid handle and spout)
+    # Keep grasp somewhat near center in XY but be generous
     dist_xy = np.linalg.norm(np.array(position[:2]) - center[:2])
-    max_radius = np.linalg.norm(size[:2]) / 3.0  # Central third of XY footprint
+    max_radius = np.linalg.norm(size[:2]) / 1.5  # relaxed from /3.0 - allow outer half
     if dist_xy > max_radius:
         return False
     
-    # Z within mid-height band (avoid lid and base)
-    min_z = min_point[2] + size[2] * 0.25
-    max_z = max_point[2] - size[2] * 0.15
+    # Wide Z band
+    min_z = min_point[2] + size[2] * 0.1  # relaxed from 0.25
+    max_z = max_point[2]  # relaxed - allow top
     if position[2] < min_z or position[2] > max_z:
         return False
     
@@ -121,28 +121,28 @@ def teapot_handle_qualifier(grasp: np.array, min_point: np.ndarray, max_point: n
     center = (min_point + max_point) / 2.0
     size = max_point - min_point
     
-    # Prefer side/horizontal approach (not top-down, not straight-on)
+    # Prefer side/horizontal approach but be lenient
     front_xy_norm = np.linalg.norm(front[:2])
-    if front_xy_norm < 0.3:  # mostly vertical, reject
+    if front_xy_norm < 0.15:  # relaxed from 0.3 - mostly vertical, reject
         return False
     
-    # Allow some upward tilt but not too steep
-    if front[2] < -0.3 or front[2] > 0.3:
+    # Allow wider range of approach angles
+    if front[2] < -0.7 or front[2] > 0.5:  # relaxed from -0.3 to 0.3
         return False
     
-    # Gripper moderately upright
-    if up[2] < 0.3:
+    # Gripper orientation - very lenient
+    if up[2] < 0.0:  # relaxed from 0.3 - just not completely upside down
         return False
     
-    # Keep grasp far from center in XY (prefer periphery where handle is)
+    # Keep grasp at outer edges but be generous
     dist_xy = np.linalg.norm(np.array(position[:2]) - center[:2])
-    min_radius = np.linalg.norm(size[:2]) / 4.0  # At least outer quarter
+    min_radius = np.linalg.norm(size[:2]) / 6.0  # relaxed from /4.0 - outer sixth is fine
     if dist_xy < min_radius:
         return False
     
-    # Z within mid-height band (handles typically mid-body)
-    min_z = min_point[2] + size[2] * 0.2
-    max_z = max_point[2] - size[2] * 0.2
+    # Wide Z band
+    min_z = min_point[2] + size[2] * 0.1  # relaxed from 0.2
+    max_z = max_point[2] - size[2] * 0.1  # relaxed from 0.2
     if position[2] < min_z or position[2] > max_z:
         return False
     
