@@ -162,7 +162,11 @@ def teapot_qualifier(grasp: np.array, min_point: np.ndarray, max_point: np.ndarr
     left, up, front = get_left_up_and_front(grasp)
 
     # Prevent top-down approach
-    if up[2] < 0.44:
+    if up[2] < 0.4:
+        return False
+    
+    # Prevent coming from the front (spout) side
+    if front[0] < 0:
         return False
 
     # Prefer handle-like approach (side approach)
