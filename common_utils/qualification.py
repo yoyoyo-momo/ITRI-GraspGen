@@ -83,36 +83,22 @@ def small_cube_qualifier(grasp: np.array, mass_center, obj_std):
     return True
 
 
-def teapot_body_qualifier(
-    grasp: np.array, min_point: np.ndarray, max_point: np.ndarray
-):
-    """Qualifier for grasping teapot body (top-down on the barrel)"""
-    position = grasp[:3, 3].tolist()
+def teapot_lid_qualifier(grasp: np.array, min_point: np.ndarray, max_point: np.ndarray):
+    """Qualifier for grasping teapot lid (top-down on the barrel) - MORE VERTICAL"""
+    # position = grasp[:3, 3].tolist()
     left, up, front = get_left_up_and_front(grasp)
 
-    center = (min_point + max_point) / 2.0
-    size = max_point - min_point
-
-    # Prefer downward approach but be lenient
-    if front[2] > -0.2:  # relaxed from -0.5
+    # Enforce VERTICAL gripper (inverted to grasp from above)
+    if up[2] > 0.4:  # Green must point mostly downward (inverted)
         return False
 
-    # Gripper orientation check - more lenient
-    if up[2] < 0.3:  # relaxed from 0.6
+    # Enforce DOWNWARD approach (blue pointing DOWN)
+    if front[0] < -0.1:  # Blue must point downward
         return False
 
-    # Keep grasp somewhat near center in XY but be generous
-    dist_xy = np.linalg.norm(np.array(position[:2]) - center[:2])
-    max_radius = np.linalg.norm(size[:2]) / 1.5  # relaxed from /3.0 - allow outer half
-    if dist_xy > max_radius:
+    # Must not be tilted too much
+    if abs(left[2]) > 0.3:
         return False
-
-    # Wide Z band
-    min_z = min_point[2] + size[2] * 0.1  # relaxed from 0.25
-    max_z = max_point[2]  # relaxed - allow top
-    if position[2] < min_z or position[2] > max_z:
-        return False
-
     return True
 
 
@@ -174,13 +160,18 @@ def teapot_qualifier(grasp: np.array, min_point: np.ndarray, max_point: np.ndarr
     return True
 
 
+def dummy_qualifier(grasp: np.array, min_point: np.ndarray, max_point: np.ndarray):
+    return True
+
+
 qualifier_dict = {
     "small_cup_qualifier": small_cup_qualifier,
     "cup_qualifier": cup_qualifier,
     "small_cube_qualifier": small_cube_qualifier,
-    "teapot_body_qualifier": teapot_body_qualifier,
+    "teapot_lid_qualifier": teapot_lid_qualifier,
     "teapot_handle_qualifier": teapot_handle_qualifier,
     "teapot_qualifier": teapot_qualifier,
+    "dummy_qualifier": dummy_qualifier,
 }
 
 
