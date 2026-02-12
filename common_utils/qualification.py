@@ -89,56 +89,16 @@ def teapot_lid_qualifier(grasp: np.array, min_point: np.ndarray, max_point: np.n
     left, up, front = get_left_up_and_front(grasp)
 
     # Enforce VERTICAL gripper (inverted to grasp from above)
-    if up[2] > 0.4:  # Green must point mostly downward (inverted)
+    if up[2] > 0.5:  # Green must point mostly downward (inverted)
         return False
 
     # Enforce DOWNWARD approach (blue pointing DOWN)
-    if front[0] < -0.1:  # Blue must point downward
+    if front[0] < -0.2:  # Blue must point downward
         return False
 
     # Must not be tilted too much
-    if abs(left[2]) > 0.3:
+    if abs(left[2]) > 0.6:
         return False
-    return True
-
-
-def teapot_handle_qualifier(
-    grasp: np.array, min_point: np.ndarray, max_point: np.ndarray
-):
-    """Qualifier for grasping teapot handle (side approach)"""
-    position = grasp[:3, 3].tolist()
-    left, up, front = get_left_up_and_front(grasp)
-
-    center = (min_point + max_point) / 2.0
-    size = max_point - min_point
-
-    # Prefer side/horizontal approach but be lenient
-    front_xy_norm = np.linalg.norm(front[:2])
-    if front_xy_norm < 0.15:  # relaxed from 0.3 - mostly vertical, reject
-        return False
-
-    # Allow wider range of approach angles
-    if front[2] < -0.7 or front[2] > 0.5:  # relaxed from -0.3 to 0.3
-        return False
-
-    # Gripper orientation - very lenient
-    if up[2] < 0.0:  # relaxed from 0.3 - just not completely upside down
-        return False
-
-    # Keep grasp at outer edges but be generous
-    dist_xy = np.linalg.norm(np.array(position[:2]) - center[:2])
-    min_radius = (
-        np.linalg.norm(size[:2]) / 6.0
-    )  # relaxed from /4.0 - outer sixth is fine
-    if dist_xy < min_radius:
-        return False
-
-    # Wide Z band
-    min_z = min_point[2] + size[2] * 0.1  # relaxed from 0.2
-    max_z = max_point[2] - size[2] * 0.1  # relaxed from 0.2
-    if position[2] < min_z or position[2] > max_z:
-        return False
-
     return True
 
 
@@ -148,7 +108,7 @@ def teapot_qualifier(grasp: np.array, min_point: np.ndarray, max_point: np.ndarr
     left, up, front = get_left_up_and_front(grasp)
 
     # Prevent top-down approach
-    if up[2] < 0.4:
+    if up[2] < 0.8:
         return False
 
     # Prevent coming from the front (spout) side
@@ -169,7 +129,6 @@ qualifier_dict = {
     "cup_qualifier": cup_qualifier,
     "small_cube_qualifier": small_cube_qualifier,
     "teapot_lid_qualifier": teapot_lid_qualifier,
-    "teapot_handle_qualifier": teapot_handle_qualifier,
     "teapot_qualifier": teapot_qualifier,
     "dummy_qualifier": dummy_qualifier,
 }
