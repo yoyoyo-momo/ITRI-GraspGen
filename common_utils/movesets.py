@@ -568,6 +568,7 @@ def grab_and_place_curobo(
     full_act = {"moves": moves, "obstacles": obstacles}
     return full_act
 
+
 def grab_bottle_and_place_curobo(
     target_name: str, grasp: np.array, args: list, scene_data: dict
 ) -> dict:
