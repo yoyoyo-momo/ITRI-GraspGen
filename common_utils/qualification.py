@@ -89,7 +89,7 @@ def teapot_lid_qualifier(grasp: np.array, min_point: np.ndarray, max_point: np.n
     left, up, front = get_left_up_and_front(grasp)
 
     # Enforce VERTICAL gripper (inverted to grasp from above)
-    if up[2] > 0.5:  # Green must point mostly downward (inverted)
+    if up[2] > 0.3:  # Green must point mostly downward (inverted)
         return False
 
     # Enforce DOWNWARD approach (blue pointing DOWN)
@@ -97,7 +97,7 @@ def teapot_lid_qualifier(grasp: np.array, min_point: np.ndarray, max_point: np.n
         return False
 
     # Must not be tilted too much
-    if abs(left[2]) > 0.6:
+    if abs(left[2]) > 0.5:
         return False
     return True
 
@@ -115,8 +115,6 @@ def teapot_qualifier(grasp: np.array, min_point: np.ndarray, max_point: np.ndarr
     if front[0] < 0:
         return False
 
-    # Prefer handle-like approach (side approach)
-    # return teapot_handle_qualifier(grasp, min_point, max_point)
     return True
 
 
