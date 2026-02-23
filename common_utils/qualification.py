@@ -85,7 +85,7 @@ def small_cube_qualifier(grasp: np.array, mass_center, obj_std):
 
 def teapot_lid_qualifier(grasp: np.array, min_point: np.ndarray, max_point: np.ndarray):
     """Qualifier for grasping teapot lid (top-down on the barrel) - MORE VERTICAL"""
-    # position = grasp[:3, 3].tolist()
+    position = grasp[:3, 3].tolist()
     left, up, front = get_left_up_and_front(grasp)
 
     # Enforce VERTICAL gripper (inverted to grasp from above)
@@ -99,6 +99,12 @@ def teapot_lid_qualifier(grasp: np.array, min_point: np.ndarray, max_point: np.n
     # Must not be tilted too much
     if abs(left[2]) > 0.1:
         return False
+
+    if position[0] < min_point[0] + (max_point[0] - min_point[0]) * 0.5:  # too left
+        return False
+    if position[0] > min_point[0] + (max_point[0] - min_point[0]) * 0.5:  # too right
+        return False
+
     return True
 
 
