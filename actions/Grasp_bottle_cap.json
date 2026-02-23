@@ -3,7 +3,7 @@
     [
         [915, 242, 1279, 719]
     ],
-    "track": ["plastic bottle"],
+    "track": ["small bottle"],
     "extra_obstacles": {
         "funnel": {
             "max": [
@@ -21,7 +21,7 @@
     "actions":
     [
         {
-            "target_name": "plastic bottle",
+            "target_name": "small bottle",
             "qualifier": "teapot_lid_qualifier",
             "action": "grab_bottle_and_place_curobo",
             "args": [
