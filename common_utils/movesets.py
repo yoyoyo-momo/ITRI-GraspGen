@@ -585,9 +585,10 @@ def grab_bottle_and_place_curobo(
     before_grasp_position = [
         p - f * 0.050 for p, f in zip(position, front, strict=False)
     ]
-    grasp_position = [p + f * 0.048 for p, f in zip(position, front, strict=False)]
+    # grasp_position = [p + f * 0.048 for p, f in zip(position, front, strict=False)]
+    grasp_position = [p + f * 0 for p, f in zip(position, front, strict=False)]
 
-    release_position = args[0]
+    release_position = grasp_position[:2] + [grasp_position[2] + 0.250]
     after_release_position = (
         [release_position[0] - 0.05]
         + [release_position[1] - 0.05]
@@ -612,13 +613,13 @@ def grab_bottle_and_place_curobo(
     )
     moves.append({"type": "gripper", "grip_type": "close", "wait_time": 1.0})
 
-    moves.append(
-        {
-            "type": "arm",
-            "goal": before_grasp_position + quaternion_orientation,
-            "wait_time": 0.0,
-        }
-    )
+    # moves.append(
+    #     {
+    #         "type": "arm",
+    #         "goal": before_grasp_position + quaternion_orientation,
+    #         "wait_time": 0.0,
+    #     }
+    # )
 
     moves.append(
         {
