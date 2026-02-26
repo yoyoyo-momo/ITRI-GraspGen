@@ -11,7 +11,9 @@ def get_left_up_and_front(grasp: np.array) -> tuple[np.ndarray, np.ndarray, np.n
     return left, up, front
 
 
-def cup_qualifier(grasp: np.array, min_point: np.ndarray, max_point: np.ndarray):
+def cup_qualifier(
+    grasp: np.array, min_point: np.ndarray, max_point: np.ndarray, **kwargs
+):
     position = grasp[:3, 3].tolist()
     left, up, front = get_left_up_and_front(grasp)
     position += front * 0.20  # offset
@@ -37,7 +39,7 @@ def cup_qualifier(grasp: np.array, min_point: np.ndarray, max_point: np.ndarray)
     return True
 
 
-def small_cup_qualifier(grasp: np.array, mass_center, obj_std):
+def small_cup_qualifier(grasp: np.array, mass_center, obj_std, **kwargs):
     position = grasp[:3, 3].tolist()
     left, up, front = get_left_up_and_front(grasp)
     if up[2] < 0.7:
@@ -60,7 +62,7 @@ def small_cup_qualifier(grasp: np.array, mass_center, obj_std):
     return True  #
 
 
-def small_cube_qualifier(grasp: np.array, mass_center, obj_std):
+def small_cube_qualifier(grasp: np.array, mass_center, obj_std, **kwargs):
     position = grasp[:3, 3].tolist()
     left, up, front = get_left_up_and_front(grasp)
     if front[0] < 0:
@@ -83,7 +85,9 @@ def small_cube_qualifier(grasp: np.array, mass_center, obj_std):
     return True
 
 
-def teapot_lid_qualifier(grasp: np.array, min_point: np.ndarray, max_point: np.ndarray):
+def teapot_lid_qualifier(
+    grasp: np.array, min_point: np.ndarray, max_point: np.ndarray, **kwargs
+):
     """Qualifier for grasping teapot lid (top-down on the barrel) - MORE VERTICAL"""
     # position = grasp[:3, 3].tolist()
     left, up, front = get_left_up_and_front(grasp)
@@ -110,7 +114,13 @@ def teapot_lid_qualifier(grasp: np.array, min_point: np.ndarray, max_point: np.n
     return True
 
 
-def teapot_qualifier(grasp: np.array, min_point: np.ndarray, max_point: np.ndarray):
+def teapot_qualifier(
+    grasp: np.array,
+    min_point: np.ndarray,
+    max_point: np.ndarray,
+    handle_side: str = "unknown",
+    **kwargs,
+):
     """Qualifier for grasping teapot (body or handle)"""
     # position = grasp[:3, 3].tolist()
     left, up, front = get_left_up_and_front(grasp)
@@ -119,14 +129,20 @@ def teapot_qualifier(grasp: np.array, min_point: np.ndarray, max_point: np.ndarr
     if up[2] < 0.85:
         return False
 
-    # Prevent coming from the front (spout) side
-    # if front[0] < 0:
-    #     return False
+    # Optional side-dependent preference from teapot handle detector.
+    # If handle is on the left, prefer front[1] >= 0 (approach from right side),
+    # and vice versa when handle is on the right.
+    if handle_side == "left" and front[1] < 0:
+        return False
+    if handle_side == "right" and front[1] > 0:
+        return False
 
     return True
 
 
-def dummy_qualifier(grasp: np.array, min_point: np.ndarray, max_point: np.ndarray):
+def dummy_qualifier(
+    grasp: np.array, min_point: np.ndarray, max_point: np.ndarray, **kwargs
+):
     return True
 
 
@@ -141,10 +157,16 @@ qualifier_dict = {
 
 
 def is_qualified(
-    grasp: np.array, qualifier: str, min_point: np.ndarray, max_point: np.ndarray
+    grasp: np.array,
+    qualifier: str,
+    min_point: np.ndarray,
+    max_point: np.ndarray,
+    qualifier_kwargs: dict | None = None,
 ) -> bool:
     if qualifier not in qualifier_dict:
         logger.error(f"There is no such qualifier: {qualifier}")
         raise KeyError
     qualification_method = qualifier_dict[qualifier]
-    return qualification_method(grasp, min_point, max_point)
+    if qualifier_kwargs is None:
+        qualifier_kwargs = {}
+    return qualification_method(grasp, min_point, max_point, **qualifier_kwargs)

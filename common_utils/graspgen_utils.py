@@ -376,6 +376,9 @@ class GraspGeneratorUI:
         obj_name = self.action["target_name"]
         obj_pc = self.scene_data["object_infos"][obj_name]["points"]
         qualifier_name = self.action["qualifier"]
+        qualifier_kwargs = self.action.get("qualifier_kwargs", {})
+        if not isinstance(qualifier_kwargs, dict):
+            qualifier_kwargs = {}
         # mass_center = np.mean(obj_pc, axis=0)
         # std = np.std(obj_pc, axis=0)
         grasps, grasp_conf = GraspGenSampler.run_inference(
@@ -394,7 +397,13 @@ class GraspGeneratorUI:
         max_point = np.percentile(obj_pc, 97, axis=0)
         custom_filter_mask = np.array(
             [
-                is_qualified(grasp, qualifier_name, min_point, max_point)
+                is_qualified(
+                    grasp,
+                    qualifier_name,
+                    min_point,
+                    max_point,
+                    qualifier_kwargs=qualifier_kwargs,
+                )
                 for grasp in grasps
             ]
         )
