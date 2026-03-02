@@ -654,6 +654,80 @@ def grab_bottle_and_place_curobo(
     full_act = {"moves": moves, "obstacles": obstacles}
     return full_act
 
+def grab_and_rotate(
+    target_name: str, grasp: np.array, args: list, scene_data: dict
+):
+    obstacles = scene_data["obstacles"]
+    moves = []
+    position = grasp[:3, 3].tolist()
+    logger.debug(position)
+    quaternion_orientation = list(trimesh.transformations.quaternion_from_matrix(grasp))
+    _, _, front = get_left_up_and_front(grasp)
+    front = front.tolist()
+
+    before_grasp_position = [
+        p - f * 0.050 for p, f in zip(position, front, strict=False)
+    ]
+    grasp_position = [p + f * 0.048 for p, f in zip(position, front, strict=False)]
+    
+    # release position is the same as grasp position, but with 90 degree rotation around z axis
+    q_z_rotation = trimesh.transformations.quaternion_about_axis(np.deg2rad(90), [0, 0, 1])
+    release_rotation = trimesh.transformations.quaternion_multiply(q_z_rotation, quaternion_orientation).tolist()
+    release_position = grasp_position
+    after_release_position = grasp_position[:2] + [grasp_position[2] + 0.005]
+
+    moves.append(
+        {
+            "type": "arm",
+            "goal": before_grasp_position + quaternion_orientation,
+            "wait_time": 0.0,
+        }
+    )
+    moves.append(
+        {
+            "type": "arm",
+            "goal": grasp_position + quaternion_orientation,
+            "wait_time": 0.0,
+            "no_obstacles": "yesyesyes",
+            "no_curobo": True,
+            "ignore_obstacles": [target_name],
+        }
+    )
+    moves.append({"type": "gripper", "grip_type": "close", "wait_time": 1.0})
+    moves.append(
+        {
+            "type": "arm",
+            "goal": release_position + release_rotation,
+            "wait_time": 0.0,
+            "ignore_obstacles": [target_name],
+        }
+    )
+    moves.append({"type": "gripper", "grip_type": "open", "wait_time": 1.0})
+    moves.append(
+        {
+            "type": "arm",
+            "goal": after_release_position + release_rotation,
+            "wait_time": 0.0,
+            "no_obstacles": "yesyesyes",
+            "ignore_obstacles": [target_name],
+            "no_curobo": True,
+        }
+    )
+    moves.append(
+        {
+            "type": "arm",
+            "goal": after_release_position[:2]
+            + [after_release_position[2] + 0.1]
+            + release_rotation,
+            "wait_time": 0.0,
+            "no_obstacles": "yesyesyes",
+        }
+    )
+
+    full_act = {"moves": moves, "obstacles": obstacles}
+    return full_act
+
+
 
 action_dict = {
     "grab_and_pour_and_place_back": grab_and_pour_and_place_back,
@@ -665,6 +739,7 @@ action_dict = {
     "open_grip": open_grip,
     "grab_and_place_curobo": grab_and_place_curobo,
     "grab_bottle_and_place_curobo": grab_bottle_and_place_curobo,
+    "grab_and_rotate": grab_and_rotate,
 }
 
 

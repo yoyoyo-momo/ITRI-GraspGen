@@ -1,0 +1,32 @@
+{
+    "blockages":
+    [
+        [915, 242, 1279, 719]
+    ],
+    "track": ["teapot"],
+    "extra_obstacles": {
+        "funnel": {
+            "max": [
+                0.9534448779882478,
+                0.5067593718845549,
+                0.2276409522244929
+            ],
+            "min": [
+                0.8184926451424287,
+                0.39387648388621266,
+                0.03063070631200454
+            ]
+        }
+    },
+    "actions":
+    [
+        {
+            "target_name": "teapot",
+            "qualifier": "teapot_lid_qualifier",
+            "action": "grab_and_rotate",
+            "args": [
+                [0.3, 0.4, 0.22]
+            ]
+        }
+    ]
+}
