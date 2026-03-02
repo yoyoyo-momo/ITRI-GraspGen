@@ -242,6 +242,7 @@ class WorkflowExecutor:
                 text_threshold=dino_text_threshold,
             )
             if len(boxes) > 0:
+
                 def _box_score(box):
                     phrase = str(box.phrase).lower()
                     matched = 1 if dino_keyword in phrase else 0

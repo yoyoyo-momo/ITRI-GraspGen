@@ -654,9 +654,8 @@ def grab_bottle_and_place_curobo(
     full_act = {"moves": moves, "obstacles": obstacles}
     return full_act
 
-def grab_and_rotate(
-    target_name: str, grasp: np.array, args: list, scene_data: dict
-):
+
+def grab_and_rotate(target_name: str, grasp: np.array, args: list, scene_data: dict):
     obstacles = scene_data["obstacles"]
     moves = []
     position = grasp[:3, 3].tolist()
@@ -669,10 +668,14 @@ def grab_and_rotate(
         p - f * 0.050 for p, f in zip(position, front, strict=False)
     ]
     grasp_position = [p + f * 0.048 for p, f in zip(position, front, strict=False)]
-    
+
     # release position is the same as grasp position, but with 90 degree rotation around z axis
-    q_z_rotation = trimesh.transformations.quaternion_about_axis(np.deg2rad(90), [0, 0, 1])
-    release_rotation = trimesh.transformations.quaternion_multiply(q_z_rotation, quaternion_orientation).tolist()
+    q_z_rotation = trimesh.transformations.quaternion_about_axis(
+        np.deg2rad(90), [0, 0, 1]
+    )
+    release_rotation = trimesh.transformations.quaternion_multiply(
+        q_z_rotation, quaternion_orientation
+    ).tolist()
     release_position = grasp_position
     after_release_position = grasp_position[:2] + [grasp_position[2] + 0.005]
 
@@ -726,7 +729,6 @@ def grab_and_rotate(
 
     full_act = {"moves": moves, "obstacles": obstacles}
     return full_act
-
 
 
 action_dict = {
