@@ -274,7 +274,7 @@ class WorkflowExecutor:
                 "GroundingDINO failed for teapot localization; fallback to full image"
             )
 
-        result, _, _ = detector.detect_auto(crop_rgb, image_name=image_path.name)
+        result, _, _ = detector.detect(crop_rgb, image_name=image_path.name)
         if result.center_x is not None:
             result.center_x += offset_x
         if result.center_y is not None:
