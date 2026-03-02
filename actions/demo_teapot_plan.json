@@ -1,0 +1,34 @@
+{
+    "detector": {
+        "target_max_dim": 1400,
+        "auto_refine": true,
+        "refine_confidence": 0.6,
+        "dino_prompt": "teapot .",
+        "dino_teapot_keyword": "teapot",
+        "dino_box_threshold": 0.35,
+        "dino_text_threshold": 0.25,
+        "dino_padding_px": 24
+    },
+    "steps": [
+        {
+            "action_name": "Grasp_teapot_lid",
+            "requires_teapot_handle_detector": true,
+            "extra_action_if": {
+                "action_name": "Rotate_teapot",
+                "when_handle_side": [
+                    "unknown"
+                ]
+            }
+        },
+        {
+            "action_name": "Grasp_teapot",
+            "requires_teapot_handle_detector": true,
+            "extra_action_if": {
+                "action_name": "Rotate_teapot",
+                "when_handle_side": [
+                    "unknown"
+                ]
+            }
+        }
+    ]
+}
