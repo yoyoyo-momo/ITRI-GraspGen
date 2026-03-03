@@ -1,29 +1,27 @@
 {
     "blockages":
     [
-        [915, 242, 1279, 719],
-        [413, 205, 500, 300]
+        [915, 242, 1279, 719]
     ],
-    "valid_region":[363, 238, 846, 504],
-    "track": ["teapot"],
+    "track": ["black cup"],
     "extra_obstacles": {
         "funnel": {
             "max": [
-                0.9534448779882478,
-                0.5067593718845549,
-                0.2276409522244929
+                0.0,
+                0.0,
+                0.0
             ],
             "min": [
-                0.8184926451424287,
-                0.39387648388621266,
-                0.03063070631200454
+                0.0,
+                0.0,
+                0.0
             ]
         }
     },
     "actions":
     [
         {
-            "target_name": "teapot",
+            "target_name": "black cup",
             "qualifier": "teapot_qualifier",
             "action": "grab_and_place_curobo",
             "args": [

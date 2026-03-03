@@ -3,7 +3,7 @@
     [
         [915, 242, 1279, 719]
     ],
-    "track": ["teapot"],
+    "track": ["black cup"],
     "extra_obstacles": {
         "funnel": {
             "max": [
@@ -21,7 +21,7 @@
     "actions":
     [
         {
-            "target_name": "teapot",
+            "target_name": "black cup",
             "qualifier": "teapot_lid_qualifier",
             "action": "grab_and_place_curobo",
             "args": [
