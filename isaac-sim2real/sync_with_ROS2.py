@@ -119,6 +119,26 @@ class Move:
         self.cmd_plan = cmd_plan
 
 
+def sanitize_xyz(values, fallback=0.0) -> np.ndarray:
+    xyz = np.asarray(values, dtype=np.float64).reshape(-1)
+    if xyz.size < 3:
+        xyz = np.pad(xyz, (0, 3 - xyz.size), constant_values=fallback)
+    xyz = xyz[:3]
+    if not np.all(np.isfinite(xyz)):
+        xyz = np.where(np.isfinite(xyz), xyz, fallback)
+    return xyz
+
+
+def sanitize_dims(values, min_dim=1e-4) -> np.ndarray:
+    dims = np.asarray(values, dtype=np.float64).reshape(-1)
+    if dims.size < 3:
+        dims = np.pad(dims, (0, 3 - dims.size), constant_values=min_dim)
+    dims = np.abs(dims[:3])
+    if not np.all(np.isfinite(dims)):
+        dims = np.where(np.isfinite(dims), dims, min_dim)
+    return np.maximum(dims, min_dim)
+
+
 def get_cuboid_list(move: dict, obstacles: dict) -> list:
     cuboids = []
     cuboids.append(
@@ -142,11 +162,13 @@ def get_cuboid_list(move: dict, obstacles: dict) -> list:
             scale = np.array(obstacles[obstacle_name]["max"]) - np.array(
                 obstacles[obstacle_name]["min"]
             )
+            safe_middle_point = sanitize_xyz(middle_point)
+            safe_scale = sanitize_dims(scale)
             cuboids.append(
                 Cuboid(
                     name=f"obs_{i}",
-                    pose=middle_point.tolist() + [1, 0, 0, 0],
-                    dims=scale.tolist(),
+                    pose=safe_middle_point.tolist() + [1, 0, 0, 0],
+                    dims=safe_scale.tolist(),
                 )
             )
     return cuboids
@@ -621,10 +643,12 @@ def main():
             cube: Cuboid
             for i, cube in enumerate(planned_action["obstacles"]):
                 prim_path = f"/World/temp_obstacle_{i}"
+                safe_position = sanitize_xyz(cube.pose[:3])
+                safe_scale = sanitize_dims(cube.dims)
                 cuboid.VisualCuboid(
                     prim_path=prim_path,
-                    position=np.array(cube.pose[:3]),
-                    scale=np.array(cube.dims),
+                    position=safe_position,
+                    scale=safe_scale,
                     color=np.array([0.0, 0.0, 1.0]),  # Blue
                 )
                 temp_cuboid_paths.append(prim_path)
