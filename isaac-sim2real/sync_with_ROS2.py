@@ -301,6 +301,12 @@ def parse_args():
         type=float,
         default=None,
     )
+    parser.add_argument(
+        "--base_platform_height",
+        type=float,
+        default=0.08,
+        help="Robot base lift in meters (e.g., 0.08 for an 8cm platform).",
+    )
     return parser.parse_args()
 
 
@@ -335,7 +341,11 @@ def main():
         -1.48792809,
         3.09947786,
     ]
-    robot, robot_prim_path = add_robot_to_scene(robot_cfg, my_world)
+    robot, robot_prim_path = add_robot_to_scene(
+        robot_cfg,
+        my_world,
+        position=np.array([0.0, 0.0, args.base_platform_height], dtype=np.float64),
+    )
 
     world_cfg = basic_world_config()
     tensor_args = TensorDeviceType()
