@@ -433,7 +433,7 @@ class WorkflowExecutor:
                     valid_region = actions.get("valid_region")
                     scene_data = self.pc_generator.generate_pointcloud(
                         track_names,
-                        need_confirm=not self.args.no_confirm,
+                        need_confirm=False,
                         blockages=blockages,
                         valid_region=valid_region,
                     )
@@ -535,7 +535,22 @@ class WorkflowExecutor:
 
     def close(self):
         self._status("turning off zed camera")
-        self.pc_generator.close()
+        try:
+            self.pc_generator.close()
+            time.sleep(0.5)
+        except Exception as e:
+            logger.exception(f"failed to close point cloud generator: {e}")
+
+        try:
+            self.sender.disconnect()
+        except Exception as e:
+            logger.exception(f"failed to disconnect sender socket: {e}")
+
+        try:
+            self.receiver.disconnect()
+        except Exception as e:
+            logger.exception(f"failed to disconnect receiver socket: {e}")
+
         self._status("workflow executor terminated")
 
 
@@ -765,7 +780,7 @@ def main():
 
     text_font = tkfont.nametofont("TkTextFont")
     text_font.configure(family="Noto Sans Mono", size=11)
-    
+
     WorkflowUI(root, args, project_root_dir)
     root.mainloop()
 

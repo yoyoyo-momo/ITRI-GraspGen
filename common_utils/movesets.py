@@ -508,32 +508,34 @@ def grab_and_place_curobo(
     before_grasp_position = [
         p - f * 0.050 for p, f in zip(position, front, strict=False)
     ]
-    before_grasp_position = before_grasp_position[:2] + [before_grasp_position[2] + 0.3]
-    grasp_position = [p + f * 0.048 for p, f in zip(position, front, strict=False)]
+    before_grasp_position = before_grasp_position[:2] + [before_grasp_position[2] + 0]
+    grasp_position = [p + f * 0 for p, f in zip(position, front, strict=False)]
 
-    release_position = args[0]
-    after_release_position = (
-        [release_position[0] - 0.05]
-        + [release_position[1] - 0.05]
-        + [release_position[2]]
-    )
+    # release_position = args[0]
+    # after_release_position = (
+    #     [release_position[0] - 0.05]
+    #     + [release_position[1] - 0.05]
+    #     + [release_position[2]]
+    # )
     moves.append(
         {
             "type": "arm",
             "goal": before_grasp_position + quaternion_orientation,
             "wait_time": 0.0,
+            "no_obstacles": "yesyesyes",
+            "ignore_obstacles": [target_name],
         }
     )
-    # moves.append(
-    #     {
-    #         "type": "arm",
-    #         "goal": grasp_position + quaternion_orientation,
-    #         "wait_time": 0.0,
-    #         "no_obstacles": "yesyesyes",
-    #         "no_curobo": True,
-    #         "ignore_obstacles": [target_name],
-    #     }
-    # )
+    moves.append(
+        {
+            "type": "arm",
+            "goal": grasp_position + quaternion_orientation,
+            "wait_time": 0.0,
+            "no_obstacles": "yesyesyes",
+            "no_curobo": True,
+            "ignore_obstacles": [target_name],
+        }
+    )
     # moves.append({"type": "gripper", "grip_type": "close", "wait_time": 1.0})
 
     # moves.append(
@@ -679,13 +681,14 @@ def grab_and_rotate(target_name: str, grasp: np.array, args: list, scene_data: d
         q_z_rotation, quaternion_orientation
     ).tolist()
     release_position = grasp_position
-    after_release_position = grasp_position[:2] + [grasp_position[2] + 0.005]
+    # after_release_position = grasp_position[:2] + [grasp_position[2] + 0.005]
 
     moves.append(
         {
             "type": "arm",
             "goal": before_grasp_position + quaternion_orientation,
             "wait_time": 0.0,
+            "no_obstacles": "yesyesyes",
         }
     )
     moves.append(
@@ -698,7 +701,7 @@ def grab_and_rotate(target_name: str, grasp: np.array, args: list, scene_data: d
             "ignore_obstacles": [target_name],
         }
     )
-    moves.append({"type": "gripper", "grip_type": "close", "wait_time": 1.0})
+    # moves.append({"type": "gripper", "grip_type": "close", "wait_time": 1.0})
     moves.append(
         {
             "type": "arm",
@@ -707,27 +710,27 @@ def grab_and_rotate(target_name: str, grasp: np.array, args: list, scene_data: d
             "ignore_obstacles": [target_name],
         }
     )
-    moves.append({"type": "gripper", "grip_type": "open", "wait_time": 1.0})
-    moves.append(
-        {
-            "type": "arm",
-            "goal": after_release_position + release_rotation,
-            "wait_time": 0.0,
-            "no_obstacles": "yesyesyes",
-            "ignore_obstacles": [target_name],
-            "no_curobo": True,
-        }
-    )
-    moves.append(
-        {
-            "type": "arm",
-            "goal": after_release_position[:2]
-            + [after_release_position[2] + 0.1]
-            + release_rotation,
-            "wait_time": 0.0,
-            "no_obstacles": "yesyesyes",
-        }
-    )
+    # moves.append({"type": "gripper", "grip_type": "open", "wait_time": 1.0})
+    # moves.append(
+    #     {
+    #         "type": "arm",
+    #         "goal": after_release_position + release_rotation,
+    #         "wait_time": 0.0,
+    #         "no_obstacles": "yesyesyes",
+    #         "ignore_obstacles": [target_name],
+    #         "no_curobo": True,
+    #     }
+    # )
+    # moves.append(
+    #     {
+    #         "type": "arm",
+    #         "goal": after_release_position[:2]
+    #         + [after_release_position[2] + 0.1]
+    #         + release_rotation,
+    #         "wait_time": 0.0,
+    #         "no_obstacles": "yesyesyes",
+    #     }
+    # )
 
     full_act = {"moves": moves, "obstacles": obstacles}
     return full_act
