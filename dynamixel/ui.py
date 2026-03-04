@@ -2,7 +2,6 @@ import tkinter as tk
 from DXL import DynamixelController
 from actions import ACTIONS
 import threading
-import time
 
 # ==============================
 # 初始化 Dynamixel
@@ -56,15 +55,19 @@ def aid():
     # dxl.set_profile(acc=1000, vel=1000)
     dxl.move_to_positions(ACTIONS["aid"])
 
+
 def grasp():
     # print("✊ grasp")
     # dxl.set_profile(acc=1000, vel=1000)
     dxl.move_to_positions(ACTIONS["grasp"])
 
+
 def fist():
     # print("✊ grasp")
     # dxl.set_profile(acc=1000, vel=1000)
     dxl.move_to_positions(ACTIONS["fist"])
+
+
 # ==============================
 # UI
 # ==============================
@@ -79,7 +82,7 @@ tk.Button(
     text="ENABLE",
     font=btn_font,
     bg="lightgreen",
-    command=lambda: run_in_thread(enable_torque)
+    command=lambda: run_in_thread(enable_torque),
 ).pack(fill="x", pady=5)
 
 tk.Button(
@@ -87,43 +90,30 @@ tk.Button(
     text="DISABLE",
     font=btn_font,
     bg="lightcoral",
-    command=lambda: run_in_thread(disable_torque)
+    command=lambda: run_in_thread(disable_torque),
 ).pack(fill="x", pady=5)
 
-tk.Button(
-    root,
-    text="OPEN",
-    font=btn_font,
-    command=lambda: run_in_thread(open)
-).pack(fill="x", pady=5)
+tk.Button(root, text="OPEN", font=btn_font, command=lambda: run_in_thread(open)).pack(
+    fill="x", pady=5
+)
 
-tk.Button(
-    root,
-    text="HOOK",
-    font=btn_font,
-    command=lambda: run_in_thread(hook)
-).pack(fill="x", pady=5)
+tk.Button(root, text="HOOK", font=btn_font, command=lambda: run_in_thread(hook)).pack(
+    fill="x", pady=5
+)
 
-tk.Button(
-    root,
-    text="AID",
-    font=btn_font,  
-    command=lambda: run_in_thread(aid)
-).pack(fill="x", pady=5)   
+tk.Button(root, text="AID", font=btn_font, command=lambda: run_in_thread(aid)).pack(
+    fill="x", pady=5
+)
 
-tk.Button(
-    root,
-    text="GRASP",
-    font=btn_font,  
-    command=lambda: run_in_thread(grasp)
-).pack(fill="x", pady=5)
+tk.Button(root, text="GRASP", font=btn_font, command=lambda: run_in_thread(grasp)).pack(
+    fill="x", pady=5
+)
 
-tk.Button(
-    root,
-    text="FIST",
-    font=btn_font,
-    command=lambda: run_in_thread(fist)
-).pack(fill="x", pady=5)
+tk.Button(root, text="FIST", font=btn_font, command=lambda: run_in_thread(fist)).pack(
+    fill="x", pady=5
+)
+
+
 # ==============================
 # 關閉處理
 # ==============================

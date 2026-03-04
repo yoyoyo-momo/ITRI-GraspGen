@@ -1,13 +1,22 @@
-from dynamixel_sdk import *
-from actions import ACTIONS
-import time
+from dynamixel_sdk import (
+    COMM_SUCCESS,
+    DXL_HIBYTE,
+    DXL_HIWORD,
+    DXL_LOBYTE,
+    DXL_LOWORD,
+    GroupSyncRead,
+    GroupSyncWrite,
+    PacketHandler,
+    PortHandler,
+)
+
 
 class DynamixelController:
     def __init__(
         self,
         device_name="COM3",
         baudrate=57600,
-        dxl_ids=[1, 2, 3, 4, 5, 6, 7, 8],
+        dxl_ids=None,
         protocol_version=2.0,
     ):
         # ==============================
@@ -15,7 +24,9 @@ class DynamixelController:
         # ==============================
         self.DEVICENAME = device_name
         self.BAUDRATE = baudrate
-        self.DXL_IDS = dxl_ids
+        self.DXL_IDS = (
+            list(dxl_ids) if dxl_ids is not None else [1, 2, 3, 4, 5, 6, 7, 8]
+        )
         self.PROTOCOL_VERSION = protocol_version
 
         # Control Table
@@ -35,9 +46,9 @@ class DynamixelController:
         self.TORQUE_DISABLE = 0
 
         self.MOVING_THRESHOLD = 50
-        
+
         self.CURRENT_DEADBAND = 20  # raw unit，避免抖動
-        self.goal_currents = {}   # {dxl_id: goal_current}
+        self.goal_currents = {}  # {dxl_id: goal_current}
 
         # ==============================
         # 初始化 Port / Packet
@@ -59,7 +70,7 @@ class DynamixelController:
             self.portHandler,
             self.packetHandler,
             self.ADDR_PRESENT_POSITION,
-            self.LEN_PRESENT_POSITION
+            self.LEN_PRESENT_POSITION,
         )
         for dxl_id in self.DXL_IDS:
             self.syncReadPos.addParam(dxl_id)
@@ -69,49 +80,34 @@ class DynamixelController:
             self.portHandler,
             self.packetHandler,
             self.ADDR_PRESENT_CURRENT,
-            self.LEN_PRESENT_CURRENT
+            self.LEN_PRESENT_CURRENT,
         )
         for dxl_id in self.DXL_IDS:
             self.syncReadCur.addParam(dxl_id)
 
         # torque sync write
         self.syncWriteTorque = GroupSyncWrite(
-            self.portHandler,
-            self.packetHandler,
-            self.ADDR_TORQUE_ENABLE,
-            1
+            self.portHandler, self.packetHandler, self.ADDR_TORQUE_ENABLE, 1
         )
 
         # profile acc sync write
         self.syncWriteAcc = GroupSyncWrite(
-            self.portHandler,
-            self.packetHandler,
-            self.ADDR_PROFILE_ACCELERATION,
-            4
+            self.portHandler, self.packetHandler, self.ADDR_PROFILE_ACCELERATION, 4
         )
 
         # profile vel sync write
         self.syncWriteVel = GroupSyncWrite(
-            self.portHandler,
-            self.packetHandler,
-            self.ADDR_PROFILE_VELOCITY,
-            4
+            self.portHandler, self.packetHandler, self.ADDR_PROFILE_VELOCITY, 4
         )
 
         # profile cur sync write
         self.syncWriteCur = GroupSyncWrite(
-            self.portHandler,
-            self.packetHandler,
-            self.ADDR_GOAL_CURRENT,
-            2
+            self.portHandler, self.packetHandler, self.ADDR_GOAL_CURRENT, 2
         )
 
         # goal pos sync write
         self.syncWritePos = GroupSyncWrite(
-            self.portHandler,
-            self.packetHandler,
-            self.ADDR_GOAL_POSITION,
-            4
+            self.portHandler, self.packetHandler, self.ADDR_GOAL_POSITION, 4
         )
 
     # ==============================
@@ -156,14 +152,12 @@ class DynamixelController:
         self.goal_currents = goal_current_dict.copy()
 
         for dxl_id, cur in goal_current_dict.items():
-            param = [
-                DXL_LOBYTE(cur),
-                DXL_HIBYTE(cur)
-            ]
+            param = [DXL_LOBYTE(cur), DXL_HIBYTE(cur)]
             self.syncWriteCur.addParam(dxl_id, param)
 
         self.syncWriteCur.txPacket()
         self.syncWriteCur.clearParam()
+
     def set_profile(self, acc=50, vel=200, cur=300):
         # Acc
         for dxl_id in self.DXL_IDS:
@@ -171,7 +165,7 @@ class DynamixelController:
                 DXL_LOBYTE(DXL_LOWORD(acc)),
                 DXL_HIBYTE(DXL_LOWORD(acc)),
                 DXL_LOBYTE(DXL_HIWORD(acc)),
-                DXL_HIBYTE(DXL_HIWORD(acc))
+                DXL_HIBYTE(DXL_HIWORD(acc)),
             ]
             self.syncWriteAcc.addParam(dxl_id, acc_param)
 
@@ -184,19 +178,16 @@ class DynamixelController:
                 DXL_LOBYTE(DXL_LOWORD(vel)),
                 DXL_HIBYTE(DXL_LOWORD(vel)),
                 DXL_LOBYTE(DXL_HIWORD(vel)),
-                DXL_HIBYTE(DXL_HIWORD(vel))
+                DXL_HIBYTE(DXL_HIWORD(vel)),
             ]
             self.syncWriteVel.addParam(dxl_id, vel_param)
 
         self.syncWriteVel.txPacket()
         self.syncWriteVel.clearParam()
 
-        #cul
+        # cul
         for dxl_id in self.DXL_IDS:
-            cur_param = [
-                DXL_LOBYTE(cur),
-                DXL_HIBYTE(cur)
-            ]
+            cur_param = [DXL_LOBYTE(cur), DXL_HIBYTE(cur)]
             self.syncWriteCur.addParam(dxl_id, cur_param)
 
         self.syncWriteCur.txPacket()
@@ -211,14 +202,10 @@ class DynamixelController:
 
         for dxl_id in self.DXL_IDS:
             if self.syncReadPos.isAvailable(
-                dxl_id,
-                self.ADDR_PRESENT_POSITION,
-                self.LEN_PRESENT_POSITION
+                dxl_id, self.ADDR_PRESENT_POSITION, self.LEN_PRESENT_POSITION
             ):
                 pos = self.syncReadPos.getData(
-                    dxl_id,
-                    self.ADDR_PRESENT_POSITION,
-                    self.LEN_PRESENT_POSITION
+                    dxl_id, self.ADDR_PRESENT_POSITION, self.LEN_PRESENT_POSITION
                 )
                 positions[dxl_id] = pos
             else:
@@ -234,22 +221,20 @@ class DynamixelController:
 
         dxl_comm_result = self.syncReadCur.txRxPacket()
         if dxl_comm_result != COMM_SUCCESS:
-            print("❌ SyncReadCur 失敗:",
-                  self.packetHandler.getTxRxResult(dxl_comm_result))
+            print(
+                "❌ SyncReadCur 失敗:",
+                self.packetHandler.getTxRxResult(dxl_comm_result),
+            )
             for dxl_id in self.DXL_IDS:
                 currents[dxl_id] = "N/A"
             return currents
 
         for dxl_id in self.DXL_IDS:
             if self.syncReadCur.isAvailable(
-                dxl_id,
-                self.ADDR_PRESENT_CURRENT,
-                self.LEN_PRESENT_CURRENT
+                dxl_id, self.ADDR_PRESENT_CURRENT, self.LEN_PRESENT_CURRENT
             ):
                 raw = self.syncReadCur.getData(
-                    dxl_id,
-                    self.ADDR_PRESENT_CURRENT,
-                    self.LEN_PRESENT_CURRENT
+                    dxl_id, self.ADDR_PRESENT_CURRENT, self.LEN_PRESENT_CURRENT
                 )
                 cur = self._int16_from_uint16(raw)
                 currents[dxl_id] = cur
@@ -266,12 +251,11 @@ class DynamixelController:
         self,
         positions_array,
         # check_interval=0.01
-        ):
-
+    ):
         if len(positions_array) != len(self.DXL_IDS):
             raise ValueError("positions_array 長度必須等於馬達數量")
 
-        goal_positions = dict(zip(self.DXL_IDS, positions_array))
+        goal_positions = dict(zip(self.DXL_IDS, positions_array, strict=True))
 
         # ===== SyncWrite Goal Position =====
         for dxl_id, pos in goal_positions.items():
@@ -279,13 +263,13 @@ class DynamixelController:
                 DXL_LOBYTE(DXL_LOWORD(pos)),
                 DXL_HIBYTE(DXL_LOWORD(pos)),
                 DXL_LOBYTE(DXL_HIWORD(pos)),
-                DXL_HIBYTE(DXL_HIWORD(pos))
+                DXL_HIBYTE(DXL_HIWORD(pos)),
             ]
             self.syncWritePos.addParam(dxl_id, param)
 
         self.syncWritePos.txPacket()
         self.syncWritePos.clearParam()
-        
+
         # =============================
         # 到位 / 推到物體 判斷
         # =============================
@@ -342,8 +326,7 @@ class DynamixelController:
         self.portHandler.closePort()
 
 
-if __name__ == '__main__':
-
+if __name__ == "__main__":
     dxl = DynamixelController(device_name="/dev/ttyUSB0")
 
     dxl.enable_torque()
