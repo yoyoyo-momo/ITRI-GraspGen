@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 import tkinter as tk
 from tkinter import messagebox
+from tkinter import font as tkfont
 from threading import Thread, Event
 from queue import Queue, Empty
 
@@ -599,7 +600,7 @@ class WorkflowUI:
 
         self.run_button = tk.Button(
             control,
-            text="Run Whole Flow",
+            text="Run Workflow",
             height=2,
             command=self._start_run,
             bg="#2e7d32",
@@ -758,6 +759,13 @@ def main():
     project_root_dir = os.path.dirname(current_file_dir)
 
     root = tk.Tk()
+    default_font = tkfont.nametofont("TkDefaultFont")
+    default_font.configure(family="Noto Sans", size=12)
+    root.option_add("*Font", default_font)
+
+    text_font = tkfont.nametofont("TkTextFont")
+    text_font.configure(family="Noto Sans Mono", size=11)
+    
     WorkflowUI(root, args, project_root_dir)
     root.mainloop()
 
