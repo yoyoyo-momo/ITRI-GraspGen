@@ -95,7 +95,7 @@ def teapot_lid_qualifier(
     # Enforce VERTICAL gripper (inverted to grasp from above)
     if up[2] > 0.2:  # Green must point mostly downward (inverted)
         return False
-    # if up[1] < -0.35:
+    # if up[1] > 0:
     #     return False
 
     # Enforce DOWNWARD approach (blue pointing DOWN)
@@ -103,8 +103,8 @@ def teapot_lid_qualifier(
     #     return False
 
     # Must not be tilted too much
-    # if abs(left[2]) > 0.1:
-    #     return False
+    if abs(left[2]) > 0.1:
+        return False
 
     # if position[0] < min_point[0] + (max_point[0] - min_point[0]) * 0.5:  # too left
     #     return False
@@ -122,12 +122,23 @@ def teapot_qualifier(
     **kwargs,
 ):
     """Qualifier for grasping teapot (body or handle)"""
-    # position = grasp[:3, 3].tolist()
+    position = grasp[:3, 3].tolist()
     left, up, front = get_left_up_and_front(grasp)
 
     # Prevent top-down approach
-    if up[2] < 0.85:
+    if up[2] < 0.9:
         return False
+
+    if front[0] < 0:
+        return False
+
+    if left[0] < 0 or left[0] > 0.3:
+        return False
+
+    if position[0] > min_point[0] + (max_point[0] - min_point[0]) * 0.7:  # too forward
+        return False
+    # if position[0] < min_point[0] + (max_point[0] - min_point[0]) * 0.05:
+    #     return False
 
     # Optional side-dependent preference from teapot handle detector.
     # If handle is on the left, prefer front[1] >= 0 (approach from right side),
