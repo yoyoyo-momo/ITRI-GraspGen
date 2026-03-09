@@ -1,0 +1,21 @@
+{
+    "blockages":
+    [
+        [0, 0, 0, 0]
+    ],
+    "track": ["black cup"],
+    "extra_obstacles": {
+
+    },
+    "actions":
+    [
+        {
+            "target_name": "black cup",
+            "qualifier": "dummy_qualifier",
+            "action": "gripper_test",
+            "args": [
+                [0.3, 0.4, 0.22]
+            ]
+        }
+    ]
+}
