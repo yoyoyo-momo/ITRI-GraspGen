@@ -357,8 +357,14 @@ def main():
     #     -1.48792809,
     #     3.09947786,
     # ]
-    default_config = [ 0.09911725, -0.16612044,  2.14949515,  1.24848637, -1.49436836,
-        3.07333283]
+    default_config = [
+        0.09911725,
+        -0.16612044,
+        2.14949515,
+        1.24848637,
+        -1.49436836,
+        3.07333283,
+    ]
     robot, robot_prim_path = add_robot_to_scene(
         robot_cfg,
         my_world,
@@ -413,8 +419,14 @@ def main():
     #     -1.48792809,
     #     3.09947786,
     # ]
-    default_config = [ 0.09911725, -0.16612044,  2.14949515,  1.24848637, -1.49436836,
-        3.07333283]
+    default_config = [
+        0.09911725,
+        -0.16612044,
+        2.14949515,
+        1.24848637,
+        -1.49436836,
+        3.07333283,
+    ]
     last_joint_states = default_config
     temp_cuboid_paths = []
     common_js_names = ["joint_1", "joint_2", "joint_3", "joint_4", "joint_5", "joint_6"]

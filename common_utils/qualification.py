@@ -134,13 +134,15 @@ def teapot_qualifier(
 
     if left[0] < -0.3 or left[0] > 0.3:
         return False
-    
+
     if left[2] > 0.2:
         return False
 
     if position[0] > min_point[0] + (max_point[0] - min_point[0]) * 0.5:  # too forward
         return False
-    if position[0] < min_point[0] + (max_point[0] - min_point[0]) * (-0.9):  # too backward
+    if position[0] < min_point[0] + (max_point[0] - min_point[0]) * (
+        -0.9
+    ):  # too backward
         return False
 
     # Optional side-dependent preference from teapot handle detector.

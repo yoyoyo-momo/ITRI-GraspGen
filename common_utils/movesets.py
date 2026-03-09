@@ -517,12 +517,12 @@ def grab_and_place_curobo(
     pour_position = args[0]
 
     target_angle = np.arctan2(pour_position[1], pour_position[0])
-    radius = np.linalg.norm(pour_position[:2]) - 0.20
-    ready_pour_position = [
-        radius * np.cos(target_angle),
-        radius * np.sin(target_angle),
-        pour_position[2] + 0.200,
-    ]
+    # radius = np.linalg.norm(pour_position[:2]) - 0.20
+    # ready_pour_position = [
+    #     radius * np.cos(target_angle),
+    #     radius * np.sin(target_angle),
+    #     pour_position[2] + 0.200,
+    # ]
 
     qz_rotation = trimesh.transformations.quaternion_about_axis(target_angle, [0, 0, 1])
     qy_rotation = trimesh.transformations.quaternion_about_axis(
@@ -530,7 +530,9 @@ def grab_and_place_curobo(
     )
     q_base = np.array([0.5, 0.5, 0.5, 0.5])
     q_base_tilt = trimesh.transformations.quaternion_multiply(qy_rotation, q_base)
-    ready_pour_rotation = trimesh.transformations.quaternion_multiply(qz_rotation, q_base_tilt).tolist()
+    ready_pour_rotation = trimesh.transformations.quaternion_multiply(
+        qz_rotation, q_base_tilt
+    ).tolist()
 
     qy_rotation = trimesh.transformations.quaternion_about_axis(
         np.deg2rad(27), [0, 1, 0]
@@ -540,16 +542,16 @@ def grab_and_place_curobo(
     ).tolist()
     after_pour_position = [pour_position[0] - 0.05] + pour_position[1:]
 
-    release_position = grasp_position[:2] + [grasp_position[2] + 0.000]   
+    release_position = grasp_position[:2] + [grasp_position[2] + 0.000]
     after_release_position = release_position[:2] + [release_position[2] + 0.28]
-    
+
     qx_rotation = trimesh.transformations.quaternion_about_axis(
         np.deg2rad(-45), [1, 0, 0]
     )
     yay_rotation = trimesh.transformations.quaternion_multiply(
         qx_rotation, quaternion_orientation
     ).tolist()
-    
+
     moves.append({"type": "gripper", "grip_type": "open", "wait_time": 1.0})
     moves.append(
         {
@@ -814,6 +816,7 @@ def grab_and_rotate(target_name: str, grasp: np.array, args: list, scene_data: d
     full_act = {"moves": moves, "obstacles": obstacles}
     return full_act
 
+
 def gripper_test(target_name: str, grasp: np.array, args: list, scene_data: dict):
     obstacles = scene_data["obstacles"]
     moves = []
@@ -828,6 +831,7 @@ def gripper_test(target_name: str, grasp: np.array, args: list, scene_data: dict
     full_act = {"moves": moves, "obstacles": obstacles}
     return full_act
 
+
 action_dict = {
     "grab_and_pour_and_place_back": grab_and_pour_and_place_back,
     "grab_and_pour_and_place_back_curobo": grab_and_pour_and_place_back_curobo_by_rotation,
@@ -839,7 +843,7 @@ action_dict = {
     "grab_and_place_curobo": grab_and_place_curobo,
     "grab_bottle_and_place_curobo": grab_bottle_and_place_curobo,
     "grab_and_rotate": grab_and_rotate,
-    "gripper_test": gripper_test
+    "gripper_test": gripper_test,
 }
 
 
