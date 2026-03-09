@@ -97,6 +97,22 @@ def cmd_to_move(cmd_plan):
     return cmd_plan.position.cpu().numpy().tolist()
 
 
+def quaternion_wxyz_to_euler_deg(quaternion: list[float]) -> list[float]:
+    w, x, y, z = [float(v) for v in quaternion]
+    sinr_cosp = 2.0 * (w * x + y * z)
+    cosr_cosp = 1.0 - 2.0 * (x * x + y * y)
+    roll = np.arctan2(sinr_cosp, cosr_cosp)
+
+    sinp = 2.0 * (w * y - z * x)
+    sinp = np.clip(sinp, -1.0, 1.0)
+    pitch = np.arcsin(sinp)
+
+    siny_cosp = 2.0 * (w * z + x * y)
+    cosy_cosp = 1.0 - 2.0 * (y * y + z * z)
+    yaw = np.arctan2(siny_cosp, cosy_cosp)
+    return np.rad2deg([roll, pitch, yaw]).tolist()
+
+
 def init_pose_matric(args, motion_gen):
     pose_metric = None
     if args.constrain_grasp_approach:
@@ -447,6 +463,7 @@ def main():
             for graspgen_data in graspgen_datas:
                 before_move_joints = last_joint_states
                 curobo_planned_action_moves: list[Move] = []
+                skip_curobo_for_action = bool(graspgen_data.get("skip_curobo", False))
                 for move in graspgen_data["moves"]:
                     cuboids = get_cuboid_list(move, graspgen_data["obstacles"])
                     obstacles = WorldConfig(cuboid=cuboids)
@@ -458,6 +475,45 @@ def main():
                     if move["type"] == "gripper":
                         curobo_planned_action_moves.append(Move(move, None))
                         continue
+
+                    skip_curobo = skip_curobo_for_action or bool(
+                        move.get("skip_curobo", False)
+                    )
+                    if skip_curobo:
+                        if "joints_values" in move:
+                            positions = move["joints_values"]
+                            ROS2_move = {
+                                "type": "arm",
+                                "wait_time": move["wait_time"],
+                                "joints_values": positions,
+                            }
+                            last_joint_states = positions[-1]
+                        elif "joints_goal" in move:
+                            positions = [move["joints_goal"]]
+                            ROS2_move = {
+                                "type": "arm",
+                                "wait_time": move["wait_time"],
+                                "joints_values": positions,
+                            }
+                            last_joint_states = positions[-1]
+                        elif "goal" in move:
+                            goal = move["goal"]
+                            xyz_mm = [float(v) * 1000.0 for v in goal[:3]]
+                            rpy_deg = quaternion_wxyz_to_euler_deg(goal[3:])
+                            ROS2_move = {
+                                "type": "PTP",
+                                "wait_time": move["wait_time"],
+                                "cartesian_poses": [xyz_mm + rpy_deg],
+                            }
+                        else:
+                            print(
+                                "skip_curobo requires joints_values, joints_goal, or goal in move"
+                            )
+                            last_joint_states = before_move_joints
+                            break
+                        curobo_planned_action_moves.append(Move(ROS2_move, None))
+                        continue
+
                     print("curoboing")
                     curobo_cu_js = still_joint_states(
                         last_joint_states, tensor_args, sim_js_names
