@@ -122,28 +122,41 @@ def teapot_qualifier(
     **kwargs,
 ):
     """Qualifier for grasping teapot (body or handle)"""
-    position = grasp[:3, 3].tolist()
+    # position = grasp[:3, 3].tolist()
     left, up, front = get_left_up_and_front(grasp)
 
     # Prevent top-down approach
-    if up[2] < 0.9:
+    if up[2] < 0.92:
         return False
 
     if front[0] < 0:
         return False
 
-    if left[0] < -0.3 or left[0] > 0.3:
-        return False
+    # get the angle between the front vector and min_point-to-max_point vector in the horizontal plane
+    horizontal_front = np.array([front[0], front[1], 0])
+    horizontal_axis = np.array(
+        [max_point[0] - min_point[0], max_point[1] - min_point[1], 0]
+    )
+    if np.linalg.norm(horizontal_front) > 0 and np.linalg.norm(horizontal_axis) > 0:
+        horizontal_front /= np.linalg.norm(horizontal_front)
+        horizontal_axis /= np.linalg.norm(horizontal_axis)
+        dot_product = np.clip(np.dot(horizontal_front, horizontal_axis), -1.0, 1.0)
+        angle = np.arccos(dot_product)
+        if abs(angle) > np.deg2rad(20):  #         return False
+            return False
 
-    if left[2] > 0.2:
-        return False
+    # if left[0] < -0.3 or left[0] > 0.3:
+    #     return False
 
-    if position[0] > min_point[0] + (max_point[0] - min_point[0]) * 0.5:  # too forward
-        return False
-    if position[0] < min_point[0] + (max_point[0] - min_point[0]) * (
-        -0.9
-    ):  # too backward
-        return False
+    # if left[2] > 0.2:
+    #     return False
+
+    # if position[0] > min_point[0] + (max_point[0] - min_point[0]) * 0.5:  # too forward
+    #     return False
+    # if position[0] < min_point[0] + (max_point[0] - min_point[0]) * (
+    #     -0.9
+    # ):  # too backward
+    # return False
 
     # Optional side-dependent preference from teapot handle detector.
     # If handle is on the left, prefer front[1] >= 0 (approach from right side),

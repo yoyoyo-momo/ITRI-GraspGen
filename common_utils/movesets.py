@@ -506,17 +506,23 @@ def grab_and_place_curobo(
 
     # Grasp Position
     before_grasp_position = [
-        p - f * 0.100 for p, f in zip(position, front, strict=False)
+        p - f * 0.050 for p, f in zip(position, front, strict=False)
     ]
     before_grasp_position = before_grasp_position[:2] + [
         before_grasp_position[2] + 0.05
     ]
-    grasp_position = [p - f * 0.025 for p, f in zip(position, front, strict=False)]
-    grasp_position = grasp_position[:2] + [grasp_position[2] + 0.01]
+    grasp_position = [p + f * 0.010 for p, f in zip(position, front, strict=False)]
+    grasp_position = grasp_position[:2] + [grasp_position[2] - 0.007]
 
-    pour_position = args[0]
+    ready_pour_position = args[0]
+    pour_position = [
+        ready_pour_position[0],
+        ready_pour_position[1] - 0.05,
+        ready_pour_position[2] + 0.070,
+    ]
 
-    target_angle = np.arctan2(pour_position[1], pour_position[0])
+    # target_angle = np.arctan2(ready_pour_position[1], ready_pour_position[0])
+    target_angle = -np.pi / 4
     # radius = np.linalg.norm(pour_position[:2]) - 0.20
     # ready_pour_position = [
     #     radius * np.cos(target_angle),
@@ -535,22 +541,27 @@ def grab_and_place_curobo(
     ).tolist()
 
     qy_rotation = trimesh.transformations.quaternion_about_axis(
-        np.deg2rad(27), [0, 1, 0]
+        np.deg2rad(40), [0, 1, 0]
     )
+    qx_rotation = trimesh.transformations.quaternion_about_axis(
+        np.deg2rad(40), [1, 0, 0]
+    )
+
     pouring_rotation = trimesh.transformations.quaternion_multiply(
         qy_rotation, ready_pour_rotation
     ).tolist()
-    after_pour_position = [pour_position[0] - 0.05] + pour_position[1:]
+    pouring_rotation = trimesh.transformations.quaternion_multiply(
+        qx_rotation, pouring_rotation
+    ).tolist()
 
-    release_position = grasp_position[:2] + [grasp_position[2] + 0.000]
+    after_pour_position = [ready_pour_position[0] - 0.05] + ready_pour_position[1:]
+
+    release_position = grasp_position[:2] + [grasp_position[2] + 0.004]
     after_release_position = release_position[:2] + [release_position[2] + 0.28]
 
-    qx_rotation = trimesh.transformations.quaternion_about_axis(
-        np.deg2rad(-45), [1, 0, 0]
-    )
-    yay_rotation = trimesh.transformations.quaternion_multiply(
-        qx_rotation, quaternion_orientation
-    ).tolist()
+    # yay_rotation = trimesh.transformations.quaternion_multiply(
+    #     qx_rotation, quaternion_orientation
+    # ).tolist()
 
     moves.append({"type": "gripper", "grip_type": "open", "wait_time": 1.0})
     moves.append(
@@ -566,7 +577,7 @@ def grab_and_place_curobo(
         {
             "type": "arm",
             "goal": grasp_position + quaternion_orientation,
-            "wait_time": 0.0,
+            "wait_time": 0.5,
             "no_obstacles": "yesyesyes",
             "no_curobo": True,
             "ignore_obstacles": [target_name],
@@ -578,7 +589,7 @@ def grab_and_place_curobo(
     moves.append(
         {
             "type": "arm",
-            "goal": pour_position + ready_pour_rotation,
+            "goal": ready_pour_position + ready_pour_rotation,
             "no_obstacles": "yesyesyes",
             "wait_time": 0.0,
             "ignore_obstacles": [target_name],
@@ -590,7 +601,7 @@ def grab_and_place_curobo(
             "type": "arm",
             "goal": pour_position + pouring_rotation,
             "no_obstacles": "yesyesyes",
-            "wait_time": 0.0,
+            "wait_time": 5.0,
             "ignore_obstacles": [target_name],
         }
     )
@@ -598,7 +609,7 @@ def grab_and_place_curobo(
     moves.append(
         {
             "type": "arm",
-            "goal": pour_position + ready_pour_rotation,
+            "goal": ready_pour_position + ready_pour_rotation,
             "no_obstacles": "yesyesyes",
             "wait_time": 0.0,
             "ignore_obstacles": [target_name],
@@ -629,7 +640,7 @@ def grab_and_place_curobo(
     moves.append(
         {
             "type": "arm",
-            "goal": after_release_position + yay_rotation,
+            "goal": after_release_position + quaternion_orientation,
             "wait_time": 0.0,
             "no_obstacles": "yesyesyes",
             "ignore_obstacles": [target_name],
@@ -649,7 +660,7 @@ def grab_and_place_curobo(
     #     }
     # )
 
-    full_act = {"moves": moves, "obstacles": obstacles}
+    full_act = {"moves": moves, "obstacles": obstacles, "skip_curobo": True}
     return full_act
 
 

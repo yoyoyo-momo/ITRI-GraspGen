@@ -393,8 +393,15 @@ class GraspGeneratorUI:
         grasps = grasps.cpu().numpy()
         grasps[:, 3, 3] = 1
         grasps = flip_upside_down_grasps(grasps)
-        min_point = np.percentile(obj_pc, 3, axis=0)
-        max_point = np.percentile(obj_pc, 97, axis=0)
+        # min_point = np.percentile(obj_pc, 3, axis=0)
+        # max_point = np.percentile(obj_pc, 97, axis=0)
+        x_p2 = np.percentile(obj_pc[:, 0], 2)
+        x_p98 = np.percentile(obj_pc[:, 0], 98)
+        min_point = obj_pc[np.argmin(abs(obj_pc[:, 0] - x_p2))]
+        max_point = obj_pc[np.argmin(abs(obj_pc[:, 0] - x_p98))]
+        # draw a line between min_point and max_point for visualization
+
+        # visualize_pointcloud(self.vis, "pc_axis", np.array([min_point, max_point]), np.array([[255, 0, 0], [0, 255, 0]]), size=0.01)
         custom_filter_mask = np.array(
             [
                 is_qualified(

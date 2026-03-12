@@ -267,7 +267,7 @@ class TMRobotController(Node):
 
         try:
             self.dxl_controller.enable_torque()
-            self.dxl_controller.set_profile(acc=100, vel=150, cur=150)
+            self.dxl_controller.set_profile(acc=80, vel=100, cur=100)
             logger.info("✅ Dynamixel initialized")
         except Exception as e:
             logger.error(f"Failed to initialize Dynamixel controller: {e}")
