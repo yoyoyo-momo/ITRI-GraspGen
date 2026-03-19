@@ -147,7 +147,7 @@ class TMRobotController(Node):
         self.goal_gripper_io = [0, 0, 1]
         self._dxl_closed = False
 
-        self.dxl_controller = DynamixelController(device_name="/dev/ttyUSB0")
+        self.dxl_controller = DynamixelController(device_name="/dev/dynamixel")
 
     def shutdown_gripper(self):
         if self._dxl_closed:
@@ -267,7 +267,7 @@ class TMRobotController(Node):
 
         try:
             self.dxl_controller.enable_torque()
-            self.dxl_controller.set_profile(acc=80, vel=100, cur=100)
+            self.dxl_controller.set_profile(acc=50, vel=100, cur=150)
             logger.info("✅ Dynamixel initialized")
         except Exception as e:
             logger.error(f"Failed to initialize Dynamixel controller: {e}")

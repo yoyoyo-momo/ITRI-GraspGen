@@ -9,24 +9,25 @@ from dynamixel_sdk import (
     PacketHandler,
     PortHandler,
 )
+import time
 
 
 class DynamixelController:
     def __init__(
         self,
-        device_name="COM3",
+        device_name="/dev/dynamixel",
         baudrate=57600,
         dxl_ids=None,
         protocol_version=2.0,
     ):
+        if dxl_ids is None:
+            dxl_ids = [1, 2, 3, 4, 5, 6, 7, 8]
         # ==============================
         # 基本參數
         # ==============================
         self.DEVICENAME = device_name
         self.BAUDRATE = baudrate
-        self.DXL_IDS = (
-            list(dxl_ids) if dxl_ids is not None else [1, 2, 3, 4, 5, 6, 7, 8]
-        )
+        self.DXL_IDS = dxl_ids
         self.PROTOCOL_VERSION = protocol_version
 
         # Control Table
@@ -142,6 +143,12 @@ class DynamixelController:
         self.syncWriteTorque.txPacket()
         self.syncWriteTorque.clearParam()
 
+    def reset_motors(self):
+        for dxl_id in self.DXL_IDS:
+            self.packetHandler.reboot(self.portHandler, dxl_id)
+            time.sleep(0.1)
+        # time.sleep(2)
+
     # ==============================
     # Profile 設定
     # ==============================
@@ -255,7 +262,7 @@ class DynamixelController:
         if len(positions_array) != len(self.DXL_IDS):
             raise ValueError("positions_array 長度必須等於馬達數量")
 
-        goal_positions = dict(zip(self.DXL_IDS, positions_array, strict=True))
+        goal_positions = dict(zip(self.DXL_IDS, positions_array, strict=False))
 
         # ===== SyncWrite Goal Position =====
         for dxl_id, pos in goal_positions.items():
@@ -329,8 +336,9 @@ class DynamixelController:
 if __name__ == "__main__":
     dxl = DynamixelController(device_name="/dev/ttyUSB0")
 
+    dxl.reset_motors()
     dxl.enable_torque()
-    dxl.set_profile(acc=50, vel=80, cur=100)
+    # dxl.set_profile(acc=50, vel=80, cur=100)
 
     # dxl.set_goal_currents({
     #     1: 200,

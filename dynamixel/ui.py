@@ -6,7 +6,7 @@ import threading
 # ==============================
 # 初始化 Dynamixel
 # ==============================
-dxl = DynamixelController(device_name="/dev/ttyUSB0")
+dxl = DynamixelController(device_name="/dev/dynamixel")
 
 # ==============================
 # 動作包裝（避免 UI 卡死）
@@ -19,7 +19,7 @@ def run_in_thread(func):
 
 def enable_torque():
     dxl.enable_torque()
-    dxl.set_profile(acc=100, vel=150, cur=150)
+    dxl.set_profile(acc=50, vel=100, cur=150)
     # dxl.set_goal_currents({
     #     1: 45,
     #     2: 45,
@@ -36,6 +36,11 @@ def enable_torque():
 def disable_torque():
     dxl.disable_torque()
     print("⛔ Torque Disabled")
+
+
+def reset_motors():
+    dxl.reset_motors()
+    print("Reboot Motors Done")
 
 
 def open():
@@ -62,10 +67,46 @@ def grasp():
     dxl.move_to_positions(ACTIONS["grasp"])
 
 
-def fist():
-    # print("✊ grasp")
+def tri_open():
+    # print("✊ tri open")
     # dxl.set_profile(acc=1000, vel=1000)
-    dxl.move_to_positions(ACTIONS["fist"])
+    dxl.move_to_positions(ACTIONS["tri open"])
+
+
+def tri_close():
+    # print("✊ tri close")
+    # dxl.set_profile(acc=1000, vel=1000)
+    dxl.move_to_positions(ACTIONS["tri close"])
+
+
+def one_open():
+    # print("✊ one open")
+    # dxl.set_profile(acc=1000, vel=1000)
+    dxl.move_to_positions(ACTIONS["one open"])
+
+
+def one_close():
+    # print("✊ one close")
+    # dxl.set_profile(acc=1000, vel=1000)
+    dxl.move_to_positions(ACTIONS["one close"])
+
+
+def thumb_open():
+    # print("✊ thumb open")
+    # dxl.set_profile(acc=1000, vel=1000)
+    dxl.move_to_positions(ACTIONS["thumb open"])
+
+
+def thumb_close():
+    # print("✊ thumb close")
+    # dxl.set_profile(acc=1000, vel=1000)
+    dxl.move_to_positions(ACTIONS["thumb close"])
+
+
+def thumb_press():
+    # print("✊ thumb press")
+    # dxl.set_profile(acc=1000, vel=1000)
+    dxl.move_to_positions(ACTIONS["thumb press"])
 
 
 # ==============================
@@ -73,7 +114,7 @@ def fist():
 # ==============================
 root = tk.Tk()
 root.title("Dynamixel Hand Control")
-root.geometry("300x300")
+root.geometry("300x340")
 
 btn_font = ("Arial", 14)
 
@@ -93,6 +134,14 @@ tk.Button(
     command=lambda: run_in_thread(disable_torque),
 ).pack(fill="x", pady=5)
 
+tk.Button(
+    root,
+    text="RESET",
+    font=btn_font,
+    bg="lightyellow",
+    command=lambda: run_in_thread(reset_motors),
+).pack(fill="x", pady=5)
+
 tk.Button(root, text="OPEN", font=btn_font, command=lambda: run_in_thread(open)).pack(
     fill="x", pady=5
 )
@@ -109,9 +158,33 @@ tk.Button(root, text="GRASP", font=btn_font, command=lambda: run_in_thread(grasp
     fill="x", pady=5
 )
 
-tk.Button(root, text="FIST", font=btn_font, command=lambda: run_in_thread(fist)).pack(
-    fill="x", pady=5
-)
+tk.Button(
+    root, text="TRI OPEN", font=btn_font, command=lambda: run_in_thread(tri_open)
+).pack(fill="x", pady=5)
+
+tk.Button(
+    root, text="TRI CLOSE", font=btn_font, command=lambda: run_in_thread(tri_close)
+).pack(fill="x", pady=5)
+
+tk.Button(
+    root, text="THUMB OPEN", font=btn_font, command=lambda: run_in_thread(thumb_open)
+).pack(fill="x", pady=5)
+
+tk.Button(
+    root, text="THUMB CLOSE", font=btn_font, command=lambda: run_in_thread(thumb_close)
+).pack(fill="x", pady=5)
+
+tk.Button(
+    root, text="THUMB PRESS", font=btn_font, command=lambda: run_in_thread(thumb_press)
+).pack(fill="x", pady=5)
+
+tk.Button(
+    root, text="ONE OPEN", font=btn_font, command=lambda: run_in_thread(one_open)
+).pack(fill="x", pady=5)
+
+tk.Button(
+    root, text="ONE CLOSE", font=btn_font, command=lambda: run_in_thread(one_close)
+).pack(fill="x", pady=5)
 
 
 # ==============================
