@@ -122,14 +122,23 @@ def teapot_qualifier(
     **kwargs,
 ):
     """Qualifier for grasping teapot (body or handle)"""
-    # position = grasp[:3, 3].tolist()
+    position = grasp[:3, 3].tolist()
     left, up, front = get_left_up_and_front(grasp)
 
     # Prevent top-down approach
-    if up[2] < 0.92:
+    if up[2] < 0.96:
         return False
 
     if front[0] < 0:
+        return False
+
+    # calculate the distance between grasp position and min point in the horizontal plane
+    horizontal_position = np.array([position[0], position[1], 0])
+    horizontal_min_point = np.array([min_point[0], min_point[1], 0])
+    horizontal_distance = np.linalg.norm(horizontal_position - horizontal_min_point)
+    if (
+        horizontal_distance > 0.15
+    ):  # too close to the center, likely to collide with the lid
         return False
 
     # get the angle between the front vector and min_point-to-max_point vector in the horizontal plane

@@ -488,6 +488,11 @@ def open_grip(
     obstacles = []
     moves = []
     moves.append({"type": "gripper", "grip_type": "open", "wait_time": 1.0})
+    moves.append({"type": "gripper", "grip_type": "hook", "wait_time": 1.0})
+    moves.append({"type": "gripper", "grip_type": "aid", "wait_time": 1.0})
+    moves.append({"type": "gripper", "grip_type": "open", "wait_time": 1.0})
+    moves.append({"type": "gripper", "grip_type": "grasp", "wait_time": 1.0})
+    moves.append({"type": "gripper", "grip_type": "open", "wait_time": 1.0})
     full_act = {"moves": moves, "obstacles": obstacles}
     return full_act
 
@@ -514,6 +519,8 @@ def grab_and_place_curobo(
     grasp_position = [p + f * 0.010 for p, f in zip(position, front, strict=False)]
     grasp_position = grasp_position[:2] + [grasp_position[2] - 0.007]
 
+    after_grasp_position = grasp_position[:2] + [grasp_position[2] + 0.10]
+
     ready_pour_position = args[0]
     pour_position = [
         ready_pour_position[0],
@@ -522,7 +529,7 @@ def grab_and_place_curobo(
     ]
 
     # target_angle = np.arctan2(ready_pour_position[1], ready_pour_position[0])
-    target_angle = -np.pi / 4
+    target_angle = -np.pi / 2
     # radius = np.linalg.norm(pour_position[:2]) - 0.20
     # ready_pour_position = [
     #     radius * np.cos(target_angle),
@@ -540,21 +547,40 @@ def grab_and_place_curobo(
         qz_rotation, q_base_tilt
     ).tolist()
 
-    qy_rotation = trimesh.transformations.quaternion_about_axis(
-        np.deg2rad(40), [0, 1, 0]
-    )
-    qx_rotation = trimesh.transformations.quaternion_about_axis(
-        np.deg2rad(40), [1, 0, 0]
-    )
+    def cal_pour_rotation(target_angle, tilt_angle, pre_pour_rotation):
+        pourZ_rotation = trimesh.transformations.quaternion_about_axis(
+            target_angle, [0, 0, 1]
+        )
+        pourY_rotation = trimesh.transformations.quaternion_about_axis(
+            tilt_angle, [1, 0, 0]
+        )
+        neg_pourZ_rotation = trimesh.transformations.quaternion_about_axis(
+            -target_angle, [0, 0, 1]
+        )
 
+        pouring_rotation = trimesh.transformations.quaternion_multiply(
+            pourZ_rotation, pre_pour_rotation
+        ).tolist()
+        pouring_rotation = trimesh.transformations.quaternion_multiply(
+            pourY_rotation, pouring_rotation
+        ).tolist()
+        pouring_rotation = trimesh.transformations.quaternion_multiply(
+            neg_pourZ_rotation, pouring_rotation
+        ).tolist()
+
+        return pouring_rotation
+
+    # pouring_rotation1 = cal_pour_rotation(target_angle, np.deg2rad(20), ready_pour_rotation)
+    # pouring_rotation2 = cal_pour_rotation(target_angle, np.deg2rad(20), pouring_rotation1)
+    # pouring_rotation = cal_pour_rotation(target_angle, np.deg2rad(40), ready_pour_rotation)
+    pourX_rotation = trimesh.transformations.quaternion_about_axis(
+        np.deg2rad(50), [1, 0, 0]
+    )
     pouring_rotation = trimesh.transformations.quaternion_multiply(
-        qy_rotation, ready_pour_rotation
-    ).tolist()
-    pouring_rotation = trimesh.transformations.quaternion_multiply(
-        qx_rotation, pouring_rotation
+        pourX_rotation, ready_pour_rotation
     ).tolist()
 
-    after_pour_position = [ready_pour_position[0] - 0.05] + ready_pour_position[1:]
+    # after_pour_position = [ready_pour_position[0] - 0.05] + ready_pour_position[1:]
 
     release_position = grasp_position[:2] + [grasp_position[2] + 0.004]
     after_release_position = release_position[:2] + [release_position[2] + 0.28]
@@ -589,6 +615,14 @@ def grab_and_place_curobo(
     moves.append(
         {
             "type": "arm",
+            "goal": after_grasp_position + quaternion_orientation,
+            "wait_time": 0.0,
+        }
+    )
+
+    moves.append(
+        {
+            "type": "arm",
             "goal": ready_pour_position + ready_pour_rotation,
             "no_obstacles": "yesyesyes",
             "wait_time": 0.0,
@@ -619,7 +653,248 @@ def grab_and_place_curobo(
     moves.append(
         {
             "type": "arm",
+            "goal": after_grasp_position + quaternion_orientation,
+            "no_obstacles": "yesyesyes",
+            "wait_time": 0.0,
+            "ignore_obstacles": [target_name],
+        }
+    )
+
+    moves.append(
+        {
+            "type": "arm",
+            "goal": release_position + quaternion_orientation,
+            "wait_time": 0.5,
+            "no_obstacles": "yesyesyes",
+            "ignore_obstacles": [target_name],
+        }
+    )
+
+    moves.append({"type": "gripper", "grip_type": "open", "wait_time": 1.0})
+    moves.append(
+        {
+            "type": "arm",
+            "goal": after_release_position + quaternion_orientation,
+            "wait_time": 0.0,
+            "no_obstacles": "yesyesyes",
+            "ignore_obstacles": [target_name],
+            "no_curobo": True,
+        }
+    )
+
+    # moves.append({"type": "gripper", "grip_type": "yay", "wait_time": 1.0})
+    # moves.append(
+    #     {
+    #         "type": "arm",
+    #         "goal": after_release_position[:2]
+    #         + [after_release_position[2] + 0.1]
+    #         + quaternion_orientation,
+    #         "wait_time": 0.0,
+    #         "no_obstacles": "yesyesyes",
+    #     }
+    # )
+
+    full_act = {"moves": moves, "obstacles": obstacles, "skip_curobo": True}
+    return full_act
+
+
+def grab_and_place_double(
+    target_name: str, grasp: np.array, args: list, scene_data: dict
+) -> dict:
+    obstacles = scene_data["obstacles"]
+    moves = []
+    # fetch basic infos
+    position = grasp[:3, 3].tolist()
+    logger.debug(position)
+    quaternion_orientation = list(trimesh.transformations.quaternion_from_matrix(grasp))
+    _, _, front = get_left_up_and_front(grasp)
+    front = front.tolist()
+
+    # Grasp Position
+    before_grasp_position = [
+        p - f * 0.050 for p, f in zip(position, front, strict=False)
+    ]
+    before_grasp_position = before_grasp_position[:2] + [
+        before_grasp_position[2] + 0.05
+    ]
+    grasp_position = [p + f * 0.010 for p, f in zip(position, front, strict=False)]
+    grasp_position = grasp_position[:2] + [grasp_position[2] - 0.000]
+
+    after_grasp_position = grasp_position[:2] + [grasp_position[2] + 0.10]
+
+    ready_pour_position = args[0]
+    pour_position = [
+        ready_pour_position[0],
+        ready_pour_position[1] - 0.05,
+        ready_pour_position[2] + 0.070,
+    ]
+
+    ready_pour_position_second = args[1]
+    pour_position_second = [
+        ready_pour_position_second[0],
+        ready_pour_position_second[1] - 0.05,
+        ready_pour_position_second[2] + 0.070,
+    ]
+
+    # target_angle = np.arctan2(ready_pour_position[1], ready_pour_position[0])
+    target_angle = -np.pi / 2
+    # radius = np.linalg.norm(pour_position[:2]) - 0.20
+    # ready_pour_position = [
+    #     radius * np.cos(target_angle),
+    #     radius * np.sin(target_angle),
+    #     pour_position[2] + 0.200,
+    # ]
+
+    qz_rotation = trimesh.transformations.quaternion_about_axis(target_angle, [0, 0, 1])
+    qy_rotation = trimesh.transformations.quaternion_about_axis(
+        -np.arcsin(front[2]), [0, 1, 0]
+    )
+    q_base = np.array([0.5, 0.5, 0.5, 0.5])
+    q_base_tilt = trimesh.transformations.quaternion_multiply(qy_rotation, q_base)
+    ready_pour_rotation = trimesh.transformations.quaternion_multiply(
+        qz_rotation, q_base_tilt
+    ).tolist()
+
+    # pourZ_rotation = trimesh.transformations.quaternion_about_axis(
+    #     np.deg2rad(45), [0, 0, 1]
+    # )
+    # pourX_rotation = trimesh.transformations.quaternion_about_axis(
+    #     np.deg2rad(40), [1, 0, 0]
+    # )
+    # neg_pourZ_rotation = trimesh.transformations.quaternion_about_axis(
+    #     np.deg2rad(-45), [0, 0, 1]
+    # )
+
+    # pouring_rotation = trimesh.transformations.quaternion_multiply(
+    #     pourZ_rotation, ready_pour_rotation
+    # ).tolist()
+    # pouring_rotation = trimesh.transformations.quaternion_multiply(
+    #     pourX_rotation, pouring_rotation
+    # ).tolist()
+    # pouring_rotation = trimesh.transformations.quaternion_multiply(
+    #     neg_pourZ_rotation, pouring_rotation
+    # ).tolist()
+
+    pourX_rotation = trimesh.transformations.quaternion_about_axis(
+        np.deg2rad(50), [1, 0, 0]
+    )
+    pouring_rotation = trimesh.transformations.quaternion_multiply(
+        pourX_rotation, ready_pour_rotation
+    ).tolist()
+
+    after_pour_position = [ready_pour_position[0] - 0.05] + ready_pour_position[1:]
+
+    release_position = grasp_position[:2] + [grasp_position[2] + 0.004]
+    after_release_position = release_position[:2] + [release_position[2] + 0.28]
+
+    after_pour_position = [
+        ready_pour_position_second[0] - 0.05
+    ] + ready_pour_position_second[1:]
+
+    release_position = grasp_position[:2] + [grasp_position[2] + 0.004]
+    after_release_position = release_position[:2] + [release_position[2] + 0.28]
+
+    # yay_rotation = trimesh.transformations.quaternion_multiply(
+    #     qx_rotation, quaternion_orientation
+    # ).tolist()
+
+    moves.append({"type": "gripper", "grip_type": "open", "wait_time": 1.0})
+    moves.append(
+        {
+            "type": "arm",
+            "goal": before_grasp_position + quaternion_orientation,
+            "wait_time": 0.0,
+            "no_obstacles": "yesyesyes",
+            "ignore_obstacles": [target_name],
+        }
+    )
+    moves.append(
+        {
+            "type": "arm",
+            "goal": grasp_position + quaternion_orientation,
+            "wait_time": 0.5,
+            "no_obstacles": "yesyesyes",
+            "no_curobo": True,
+            "ignore_obstacles": [target_name],
+        }
+    )
+    moves.append({"type": "gripper", "grip_type": "hook", "wait_time": 1.0})
+    moves.append({"type": "gripper", "grip_type": "aid", "wait_time": 1.0})
+
+    moves.append(
+        {
+            "type": "arm",
+            "goal": after_grasp_position + quaternion_orientation,
+            "no_obstacles": "yesyesyes",
+            "wait_time": 0.0,
+            "ignore_obstacles": [target_name],
+        }
+    )
+
+    moves.append(
+        {
+            "type": "arm",
+            "goal": ready_pour_position + ready_pour_rotation,
+            "no_obstacles": "yesyesyes",
+            "wait_time": 0.0,
+            "ignore_obstacles": [target_name],
+        }
+    )
+
+    moves.append(
+        {
+            "type": "arm",
+            "goal": pour_position + pouring_rotation,
+            "no_obstacles": "yesyesyes",
+            "wait_time": 5.0,
+            "ignore_obstacles": [target_name],
+        }
+    )
+
+    moves.append(
+        {
+            "type": "arm",
+            "goal": ready_pour_position + ready_pour_rotation,
+            "no_obstacles": "yesyesyes",
+            "wait_time": 0.0,
+            "ignore_obstacles": [target_name],
+        }
+    )
+
+    moves.append(
+        {
+            "type": "arm",
+            "goal": ready_pour_position_second + ready_pour_rotation,
+            "no_obstacles": "yesyesyes",
+            "wait_time": 0.0,
+            "ignore_obstacles": [target_name],
+        }
+    )
+
+    moves.append(
+        {
+            "type": "arm",
+            "goal": pour_position_second + pouring_rotation,
+            "no_obstacles": "yesyesyes",
+            "wait_time": 5.0,
+            "ignore_obstacles": [target_name],
+        }
+    )
+
+    moves.append(
+        {
+            "type": "arm",
             "goal": after_pour_position + ready_pour_rotation,
+            "no_obstacles": "yesyesyes",
+            "wait_time": 0.0,
+            "ignore_obstacles": [target_name],
+        }
+    )
+
+    moves.append(
+        {
+            "type": "arm",
+            "goal": after_grasp_position + quaternion_orientation,
             "no_obstacles": "yesyesyes",
             "wait_time": 0.0,
             "ignore_obstacles": [target_name],
@@ -831,15 +1106,25 @@ def grab_and_rotate(target_name: str, grasp: np.array, args: list, scene_data: d
 def gripper_test(target_name: str, grasp: np.array, args: list, scene_data: dict):
     obstacles = scene_data["obstacles"]
     moves = []
+
+    quaternion_orientation = list(trimesh.transformations.quaternion_from_matrix(grasp))
+
     moves.append({"type": "gripper", "grip_type": "open", "wait_time": 1.0})
     moves.append({"type": "gripper", "grip_type": "hook", "wait_time": 1.0})
+    moves.append(
+        {
+            "type": "arm",
+            "goal": args[0] + quaternion_orientation,
+            "wait_time": 0.0,
+        }
+    )
     moves.append({"type": "gripper", "grip_type": "aid", "wait_time": 1.0})
     moves.append({"type": "gripper", "grip_type": "open", "wait_time": 1.0})
     moves.append({"type": "gripper", "grip_type": "grasp", "wait_time": 1.0})
     moves.append({"type": "gripper", "grip_type": "open", "wait_time": 1.0})
     moves.append({"type": "gripper", "grip_type": "fist", "wait_time": 1.0})
     moves.append({"type": "gripper", "grip_type": "open", "wait_time": 1.0})
-    full_act = {"moves": moves, "obstacles": obstacles}
+    full_act = {"moves": moves, "obstacles": obstacles, "skip_curobo": True}
     return full_act
 
 
@@ -852,6 +1137,7 @@ action_dict = {
     "joints_rad_move_to_curobo": joints_rad_move_to_curobo,
     "open_grip": open_grip,
     "grab_and_place_curobo": grab_and_place_curobo,
+    "grab_and_place_double": grab_and_place_double,
     "grab_bottle_and_place_curobo": grab_bottle_and_place_curobo,
     "grab_and_rotate": grab_and_rotate,
     "gripper_test": gripper_test,
