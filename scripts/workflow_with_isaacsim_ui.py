@@ -11,6 +11,7 @@ from threading import Thread, Event
 from queue import Queue, Empty
 
 import numpy as np
+import cv2
 from PIL import Image
 
 from PointCloud_Generation.pointcloud_generation import PointCloudGenerator
@@ -38,6 +39,27 @@ handler = logging.StreamHandler()
 handler.setFormatter(CustomFormatter())
 logging.basicConfig(level=logging.DEBUG, handlers=[handler], force=True)
 logger = logging.getLogger(__name__)
+
+
+def _resolve_camera_source(source_text: str):
+    source_text = str(source_text).strip()
+    if source_text.isdigit():
+        return int(source_text)
+    return source_text
+
+
+def _open_2d_camera(source_text: str, width: int, height: int):
+    source = _resolve_camera_source(source_text)
+    cap = cv2.VideoCapture(source, cv2.CAP_V4L2)
+    cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+    if width > 0:
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, int(width))
+    if height > 0:
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, int(height))
+    if not cap.isOpened():
+        raise ValueError(f"Failed to open startup cup camera source: {source_text}")
+    return cap
 
 
 def parse_args():
@@ -133,10 +155,106 @@ def parse_args():
         default="",
         help="Use exisiting images at sample_data/zed_images instead of the real zed camera",
     )
+    parser.add_argument(
+        "--startup-cup-auto",
+        action="store_true",
+        help="Run startup ROI cup detector and auto-select teapot action",
+    )
+    parser.add_argument(
+        "--startup-cup-roi",
+        type=str,
+        default="",
+        help="ROI for startup cup detector in x1,y1,x2,y2",
+    )
+    parser.add_argument(
+        "--startup-cup-prompt",
+        type=str,
+        default="white cup .",
+        help="GroundingDINO prompt for startup cup detector",
+    )
+    parser.add_argument(
+        "--startup-cup-box-threshold",
+        type=float,
+        default=0.35,
+        help="GroundingDINO box threshold for startup cup detector",
+    )
+    parser.add_argument(
+        "--startup-cup-text-threshold",
+        type=float,
+        default=0.35,
+        help="GroundingDINO text threshold for startup cup detector",
+    )
+    parser.add_argument(
+        "--startup-cup-stable-frames",
+        type=int,
+        default=5,
+        help="Stable frame count required before startup action trigger",
+    )
+    parser.add_argument(
+        "--startup-cup-timeout-sec",
+        type=float,
+        default=0,
+        help="Timeout seconds for startup cup detector (<=0 disables timeout)",
+    )
+    parser.add_argument(
+        "--startup-cup-action-one",
+        type=str,
+        default="Grasp_teapot",
+        help="Action name when 1 cup is detected in ROI",
+    )
+    parser.add_argument(
+        "--startup-cup-action-two",
+        type=str,
+        default="Grasp_teapot_double",
+        help="Action name when 2 cups are detected in ROI",
+    )
+    parser.add_argument(
+        "--startup-cup-camera-source",
+        type=str,
+        default="2",
+        help="2D camera source for startup cup detection (index like 0 or URL)",
+    )
+    parser.add_argument(
+        "--startup-cup-camera-width",
+        type=int,
+        default=0,
+        help="Optional frame width for startup cup camera (0 means default)",
+    )
+    parser.add_argument(
+        "--startup-cup-camera-height",
+        type=int,
+        default=0,
+        help="Optional frame height for startup cup camera (0 means default)",
+    )
+    parser.add_argument(
+        "--startup-cup-pick-roi",
+        action="store_true",
+        help="Open interactive ROI picker and print x1,y1,x2,y2, then exit",
+    )
+
     return parser.parse_args()
 
 
 class WorkflowExecutor:
+    # These actions are fully specified by joint/gripper commands and do not need
+    # GraspGen pointcloud/object detection input.
+    NO_POINTCLOUD_ACTIONS = {
+        "open_grip",
+        "joints_rad_pour_hotwater",
+        "joints_rad_pour_tealeaf",
+        "joints_rad_grasp_filter",
+        "joints_rad_swap_teapot",
+    }
+
+    # These actions execute directly without grasp sampling.
+    DIRECT_ACTIONS = {
+        "open_grip",
+        "joints_rad_pour_hotwater",
+        "joints_rad_pour_tealeaf",
+        "joints_rad_grasp_filter",
+        "joints_rad_swap_teapot",
+    }
+
     def __init__(self, args, project_root_dir, stop_event: Event, status_queue: Queue):
         self.args = args
         self.project_root_dir = project_root_dir
@@ -149,14 +267,27 @@ class WorkflowExecutor:
         self.receiver = NonBlockingJSONReceiver(
             port=network_config.ISAACSIM_TO_GRASPGEN_PORT
         )
-        self.pc_generator = PointCloudGenerator(args)
-        self.grasp_generator = GraspGeneratorUI(
-            args.gripper_config,
-            args.grasp_threshold,
-            args.num_grasps,
-            args.topk_num_grasps,
-            not args.no_confirm,
-        )
+        self.pc_generator = None
+        self.grasp_generator = None
+        self.startup_cup_cap = None
+
+    def _get_pc_generator(self):
+        if self.pc_generator is None:
+            self._status("Initializing pointcloud/detector models")
+            self.pc_generator = PointCloudGenerator(self.args)
+        return self.pc_generator
+
+    def _get_grasp_generator(self):
+        if self.grasp_generator is None:
+            self._status("Initializing grasp generator models")
+            self.grasp_generator = GraspGeneratorUI(
+                self.args.gripper_config,
+                self.args.grasp_threshold,
+                self.args.num_grasps,
+                self.args.topk_num_grasps,
+                not self.args.no_confirm,
+            )
+        return self.grasp_generator
 
     def _status(self, text):
         logger.info(text)
@@ -174,6 +305,120 @@ class WorkflowExecutor:
         filepath = os.path.join(self.project_root_dir, "actions", name + ".json")
         with open(filepath, "rb") as f:
             return json.load(f), filepath
+
+    @staticmethod
+    def _parse_roi_text(roi_text: str):
+        if not isinstance(roi_text, str) or not roi_text.strip():
+            return None
+        parts = [p.strip() for p in roi_text.split(",")]
+        if len(parts) != 4:
+            raise ValueError(
+                "--startup-cup-roi must be x1,y1,x2,y2 (example: 420,180,980,760)"
+            )
+        x1, y1, x2, y2 = [int(v) for v in parts]
+        if x2 <= x1 or y2 <= y1:
+            raise ValueError("Invalid --startup-cup-roi: x2>x1 and y2>y1 are required")
+        return (x1, y1, x2, y2)
+
+    @staticmethod
+    def _center_in_roi(box, roi) -> bool:
+        x1, y1, x2, y2 = [int(v) for v in box]
+        cx = (x1 + x2) / 2.0
+        cy = (y1 + y2) / 2.0
+        rx1, ry1, rx2, ry2 = roi
+        return rx1 <= cx <= rx2 and ry1 <= cy <= ry2
+
+    def _count_cups_in_roi(self, color_bgr, roi) -> int:
+        pc_generator = self._get_pc_generator()
+        boxes = pc_generator.groundingdino_predictor.predict_boxes(
+            color_bgr,
+            self.args.startup_cup_prompt,
+            box_threshold=self.args.startup_cup_box_threshold,
+            text_threshold=self.args.startup_cup_text_threshold,
+        )
+        cup_count = 0
+        for box in boxes:
+            phrase = str(box.phrase).lower()
+            if "cup" not in phrase:
+                continue
+            if self._center_in_roi(box.box, roi):
+                cup_count += 1
+        return cup_count
+
+    def _get_startup_cup_frame(self):
+        if self.startup_cup_cap is None:
+            self.startup_cup_cap = _open_2d_camera(
+                self.args.startup_cup_camera_source,
+                self.args.startup_cup_camera_width,
+                self.args.startup_cup_camera_height,
+            )
+        ok, frame = self.startup_cup_cap.read()
+        if not ok or frame is None:
+            return None
+        return frame
+
+    def detect_startup_action(self) -> str | None:
+        if not getattr(self.args, "startup_cup_auto", False):
+            return None
+
+        roi = self._parse_roi_text(self.args.startup_cup_roi)
+        if roi is None:
+            raise ValueError("--startup-cup-auto requires --startup-cup-roi")
+
+        stable_required = max(1, int(self.args.startup_cup_stable_frames))
+        timeout_arg = float(self.args.startup_cup_timeout_sec)
+        timeout_sec = timeout_arg if timeout_arg > 0 else None
+        start_ts = time.time()
+        last_count = None
+        stable_frames = 0
+        timeout_text = f"{timeout_sec:.1f}s" if timeout_sec is not None else "disabled"
+
+        self._status(
+            "Startup cup detector enabled, ROI="
+            f"{roi}, stable_frames={stable_required}, timeout={timeout_text}"
+        )
+
+        while True:
+            if timeout_sec is not None and (time.time() - start_ts) >= timeout_sec:
+                break
+            if self.stop_event.is_set():
+                raise InterruptedError("stopped by user")
+
+            color_bgr = self._get_startup_cup_frame()
+            if color_bgr is None:
+                time.sleep(0.05)
+                continue
+
+            cup_count = self._count_cups_in_roi(color_bgr, roi)
+
+            if cup_count == last_count and cup_count in (1, 2):
+                stable_frames += 1
+            else:
+                last_count = cup_count
+                stable_frames = 1
+
+            self._status(
+                "Startup cup detector: "
+                f"cups_in_roi={cup_count}, stable={stable_frames}/{stable_required}"
+            )
+
+            if stable_frames >= stable_required and cup_count in (1, 2):
+                action_name = (
+                    self.args.startup_cup_action_one
+                    if cup_count == 1
+                    else self.args.startup_cup_action_two
+                )
+                self._load_actions_json(action_name)
+                self._status(
+                    f"Startup cup detector selected action: {action_name}.json"
+                )
+                return action_name
+
+            time.sleep(0.05)
+
+        raise ValueError(
+            "Startup cup detector timeout before stable 1 or 2 cups in ROI was found"
+        )
 
     def _resolve_detector_image_path(self, step: dict) -> Path | None:
         custom = step.get("detector_image")
@@ -236,7 +481,8 @@ class WorkflowExecutor:
 
         try:
             bgr = rgb[:, :, ::-1]
-            boxes = self.pc_generator.groundingdino_predictor.predict_boxes(
+            pc_generator = self._get_pc_generator()
+            boxes = pc_generator.groundingdino_predictor.predict_boxes(
                 bgr,
                 dino_prompt,
                 box_threshold=dino_box_threshold,
@@ -421,38 +667,51 @@ class WorkflowExecutor:
         if not is_actions_format_valid_v1028(actions):
             raise ValueError(f"bad actions file format: {actions_filepath}")
 
-        track_names = list(actions["track"])
-        detection_success = False
-        scene_data = None
-        while True:
-            for _ in range(20):
-                if self.stop_event.is_set():
-                    raise InterruptedError("stopped by user")
-                try:
-                    blockages = actions.get("blockages")
-                    valid_region = actions.get("valid_region")
-                    scene_data = self.pc_generator.generate_pointcloud(
-                        track_names,
-                        need_confirm=False,
-                        blockages=blockages,
-                        valid_region=valid_region,
-                    )
-                    detection_success = True
-                    break
-                except ValueError as e:
-                    logger.exception(f"{e}, try again")
-                    time.sleep(0.1)
-                    continue
-            else:
-                self._status("Failed to detect using groundingDINO")
-            if detection_success:
-                break
-            time.sleep(0.3)
-
-        scene_data = silent_transform_multiple_obj_with_name_dict(
-            scene_data, self.args.transform_config
+        extra_obstacles = actions.get("extra_obstacles", {})
+        requires_pointcloud = any(
+            action.get("action") not in self.NO_POINTCLOUD_ACTIONS
+            for action in actions["actions"]
         )
-        scene_data = create_obstacle_info(scene_data, actions["extra_obstacles"])
+
+        if requires_pointcloud:
+            track_names = list(actions["track"])
+            detection_success = False
+            scene_data = None
+            while True:
+                for _ in range(20):
+                    if self.stop_event.is_set():
+                        raise InterruptedError("stopped by user")
+                    try:
+                        blockages = actions.get("blockages")
+                        valid_region = actions.get("valid_region")
+                        pc_generator = self._get_pc_generator()
+                        scene_data = pc_generator.generate_pointcloud(
+                            track_names,
+                            need_confirm=False,
+                            blockages=blockages,
+                            valid_region=valid_region,
+                        )
+                        detection_success = True
+                        break
+                    except ValueError as e:
+                        logger.exception(f"{e}, try again")
+                        time.sleep(0.1)
+                        continue
+                else:
+                    self._status("Failed to detect using groundingDINO")
+                if detection_success:
+                    break
+                time.sleep(0.3)
+
+            scene_data = silent_transform_multiple_obj_with_name_dict(
+                scene_data, self.args.transform_config
+            )
+            scene_data = create_obstacle_info(scene_data, extra_obstacles)
+        else:
+            self._status(
+                "Skipping pointcloud generation (all actions are joint/gripper-only)"
+            )
+            scene_data = {"object_infos": {}, "obstacles": dict(extra_obstacles)}
 
         for action in actions["actions"]:
             if self.stop_event.is_set():
@@ -460,11 +719,7 @@ class WorkflowExecutor:
 
             action = self._inject_qualifier_context(action, qualifier_context)
 
-            if action["action"] in [
-                "move_to_curobo",
-                "joints_rad_move_to_curobo",
-                "open_grip",
-            ]:
+            if action["action"] in self.DIRECT_ACTIONS:
                 while True:
                     full_acts = act_with_name(
                         action["action"],
@@ -495,7 +750,8 @@ class WorkflowExecutor:
                         )
             else:
                 while True:
-                    grasps = self.grasp_generator.generate_grasp(scene_data, action)
+                    grasp_generator = self._get_grasp_generator()
+                    grasps = grasp_generator.generate_grasp(scene_data, action)
                     full_acts = act_with_name(
                         action["action"],
                         action["target_name"],
@@ -536,8 +792,16 @@ class WorkflowExecutor:
     def close(self):
         self._status("turning off zed camera")
         try:
-            self.pc_generator.close()
-            time.sleep(0.5)
+            if self.startup_cup_cap is not None:
+                self.startup_cup_cap.release()
+                self.startup_cup_cap = None
+        except Exception as e:
+            logger.exception(f"failed to release startup cup camera: {e}")
+
+        try:
+            if self.pc_generator is not None:
+                self.pc_generator.close()
+                time.sleep(0.5)
         except Exception as e:
             logger.exception(f"failed to close point cloud generator: {e}")
 
@@ -572,6 +836,9 @@ class WorkflowUI:
         self._refresh_available_actions()
         self._poll_status()
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+
+        if getattr(self.args, "startup_cup_auto", False):
+            self.root.after(200, self._start_run)
 
     def _build_ui(self):
         container = tk.Frame(self.root)
@@ -710,7 +977,7 @@ class WorkflowUI:
             return
 
         selected = list(self.selected_listbox.get(0, tk.END))
-        if len(selected) == 0:
+        if len(selected) == 0 and not self.args.startup_cup_auto:
             messagebox.showwarning("No Actions", "Please add at least one action file.")
             return
 
@@ -733,6 +1000,10 @@ class WorkflowUI:
                 self.stop_event,
                 self.status_queue,
             )
+            startup_action = executor.detect_startup_action()
+            if startup_action is not None:
+                selected_action_names = [startup_action] + list(selected_action_names)
+
             for idx, action_name in enumerate(selected_action_names, start=1):
                 if self.stop_event.is_set():
                     raise InterruptedError("stopped by user")
@@ -772,6 +1043,45 @@ def main():
     args = parse_args()
     current_file_dir = os.path.dirname(os.path.abspath(__file__))
     project_root_dir = os.path.dirname(current_file_dir)
+
+    if args.startup_cup_pick_roi:
+        cap = _open_2d_camera(
+            args.startup_cup_camera_source,
+            args.startup_cup_camera_width,
+            args.startup_cup_camera_height,
+        )
+        try:
+            frame = None
+            for _ in range(30):
+                ok, img = cap.read()
+                if ok and img is not None:
+                    frame = img
+                    break
+                time.sleep(0.03)
+
+            if frame is None:
+                raise ValueError("Failed to capture image for ROI selection")
+
+            roi = cv2.selectROI(
+                "Select startup cup ROI (ENTER=confirm, ESC=cancel)",
+                frame,
+                showCrosshair=True,
+                fromCenter=False,
+            )
+            cv2.destroyAllWindows()
+
+            x, y, w, h = [int(v) for v in roi]
+            if w <= 0 or h <= 0:
+                raise ValueError("ROI selection cancelled or invalid size")
+            roi_text = f"{x},{y},{x + w},{y + h}"
+            logger.info(f"Selected startup ROI: {roi_text}")
+            print(f"Selected startup ROI: {roi_text}")
+            return
+        finally:
+            try:
+                cap.release()
+            except Exception:
+                pass
 
     root = tk.Tk()
     default_font = tkfont.nametofont("TkDefaultFont")
