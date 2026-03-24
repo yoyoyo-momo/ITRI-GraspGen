@@ -334,7 +334,7 @@ class DynamixelController:
 
 
 if __name__ == "__main__":
-    dxl = DynamixelController(device_name="/dev/ttyUSB0")
+    dxl = DynamixelController(device_name="/dev/dynamixel")
 
     dxl.reset_motors()
     dxl.enable_torque()

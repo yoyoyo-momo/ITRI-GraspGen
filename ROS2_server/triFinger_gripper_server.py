@@ -40,6 +40,8 @@ GRIP_TYPE_TO_ACTION = {
     "grasp": "grasp",
     "fist": "fist",
     "yay": "yay",
+    "tri open": "tri open",
+    "tri close": "tri close",
 }
 
 ACTION_TO_IO_STATE = {
@@ -49,6 +51,8 @@ ACTION_TO_IO_STATE = {
     "grasp": [1, 1, 0],
     "fist": [1, 0, 1],
     "yay": [1, 1, 1],
+    "tri open": [0, 0, 0],
+    "tri close": [0, 1, 1],
 }
 
 
