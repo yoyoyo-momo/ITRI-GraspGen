@@ -231,11 +231,46 @@ def parse_args():
         action="store_true",
         help="Open interactive ROI picker and print x1,y1,x2,y2, then exit",
     )
+    parser.add_argument(
+        "--teapot-capacity",
+        type=int,
+        default=2,
+        help="Tea units in a full teapot after swap",
+    )
+    parser.add_argument(
+        "--teapot-initial-amount",
+        type=int,
+        default=-1,
+        help="Initial tea units in teapot (-1 means use --teapot-capacity)",
+    )
+    parser.add_argument(
+        "--teapot-swap-action",
+        type=str,
+        default="Swap_teapot",
+        help="Action file used to fetch swap joints args for movesets",
+    )
+    parser.add_argument(
+        "--teapot-persist-state",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Persist teapot tea amount across workflow runs",
+    )
+    parser.add_argument(
+        "--teapot-state-file",
+        type=str,
+        default=".teapot_state.json",
+        help="Path to persistent teapot state file (relative to project root)",
+    )
 
     return parser.parse_args()
 
 
 class WorkflowExecutor:
+    POURING_ACTION_COSTS = {
+        "Grasp_teapot": 1,
+        "Grasp_teapot_double": 2,
+    }
+
     # These actions are fully specified by joint/gripper commands and do not need
     # GraspGen pointcloud/object detection input.
     NO_POINTCLOUD_ACTIONS = {
@@ -244,6 +279,8 @@ class WorkflowExecutor:
         "joints_rad_pour_tealeaf",
         "joints_rad_grasp_filter",
         "joints_rad_swap_teapot",
+        "joints_rad_swap_teapot_part1",
+        "joints_rad_swap_teapot_part2",
     }
 
     # These actions execute directly without grasp sampling.
@@ -253,6 +290,8 @@ class WorkflowExecutor:
         "joints_rad_pour_tealeaf",
         "joints_rad_grasp_filter",
         "joints_rad_swap_teapot",
+        "joints_rad_swap_teapot_part1",
+        "joints_rad_swap_teapot_part2",
     }
 
     def __init__(self, args, project_root_dir, stop_event: Event, status_queue: Queue):
@@ -270,6 +309,72 @@ class WorkflowExecutor:
         self.pc_generator = None
         self.grasp_generator = None
         self.startup_cup_cap = None
+
+        self.teapot_capacity = max(1, int(getattr(self.args, "teapot_capacity", 2)))
+        initial_amount = int(getattr(self.args, "teapot_initial_amount", -1))
+        if initial_amount < 0:
+            initial_amount = self.teapot_capacity
+        self.teapot_tea_amount = max(0, min(initial_amount, self.teapot_capacity))
+        self.teapot_persist_state = bool(
+            getattr(self.args, "teapot_persist_state", True)
+        )
+        state_file_text = str(
+            getattr(self.args, "teapot_state_file", ".teapot_state.json")
+        ).strip()
+        state_path = Path(state_file_text)
+        if not state_path.is_absolute():
+            state_path = Path(self.project_root_dir) / state_path
+        self.teapot_state_file = state_path
+
+        # If user explicitly sets initial amount (>=0), it overrides persisted amount.
+        if (
+            self.teapot_persist_state
+            and int(getattr(self.args, "teapot_initial_amount", -1)) < 0
+        ):
+            persisted_amount = self._load_persisted_teapot_amount()
+            if persisted_amount is not None:
+                self.teapot_tea_amount = max(
+                    0, min(int(persisted_amount), self.teapot_capacity)
+                )
+
+        if self.teapot_persist_state:
+            self._persist_teapot_amount()
+        self.teapot_swap_action = (
+            str(getattr(self.args, "teapot_swap_action", "Swap_teapot")).strip()
+            or "Swap_teapot"
+        )
+        self._teapot_swap_action_args_cache = None
+
+    def _load_persisted_teapot_amount(self):
+        try:
+            if not self.teapot_state_file.exists():
+                return None
+            with self.teapot_state_file.open("r", encoding="utf-8") as f:
+                payload = json.load(f)
+            if not isinstance(payload, dict):
+                return None
+            value = payload.get("teapot_tea_amount")
+            if value is None:
+                return None
+            return int(value)
+        except Exception as e:
+            logger.exception(f"Failed to load teapot state: {e}")
+            return None
+
+    def _persist_teapot_amount(self):
+        if not self.teapot_persist_state:
+            return
+        try:
+            self.teapot_state_file.parent.mkdir(parents=True, exist_ok=True)
+            payload = {
+                "teapot_tea_amount": int(self.teapot_tea_amount),
+                "teapot_capacity": int(self.teapot_capacity),
+                "updated_at": time.time(),
+            }
+            with self.teapot_state_file.open("w", encoding="utf-8") as f:
+                json.dump(payload, f, indent=2)
+        except Exception as e:
+            logger.exception(f"Failed to persist teapot state: {e}")
 
     def _get_pc_generator(self):
         if self.pc_generator is None:
@@ -574,7 +679,7 @@ class WorkflowExecutor:
 
         teapot_handle = qualifier_context.get("teapot_handle")
         if not isinstance(teapot_handle, dict):
-            return action
+            teapot_handle = {}
 
         qualifier_kwargs = action.get("qualifier_kwargs", {})
         if not isinstance(qualifier_kwargs, dict):
@@ -589,10 +694,72 @@ class WorkflowExecutor:
             qualifier_kwargs["handle_confidence"] = float(
                 teapot_handle.get("confidence", 0.0)
             )
+        if "teapot_tea_amount" not in qualifier_kwargs:
+            qualifier_kwargs["teapot_tea_amount"] = int(
+                qualifier_context.get("teapot_tea_amount", 0)
+            )
+        if "teapot_capacity" not in qualifier_kwargs:
+            qualifier_kwargs["teapot_capacity"] = int(
+                qualifier_context.get("teapot_capacity", 0)
+            )
 
         merged_action = action.copy()
         merged_action["qualifier_kwargs"] = qualifier_kwargs
         return merged_action
+
+    def _sync_teapot_context(self, qualifier_context: dict | None):
+        if isinstance(qualifier_context, dict):
+            qualifier_context["teapot_tea_amount"] = int(self.teapot_tea_amount)
+            qualifier_context["teapot_capacity"] = int(self.teapot_capacity)
+
+    def _inject_runtime_scene_data(self, scene_data: dict, action_name: str):
+        if not isinstance(scene_data, dict):
+            return
+        scene_data["teapot_tea_amount"] = int(self.teapot_tea_amount)
+        scene_data["teapot_capacity"] = int(self.teapot_capacity)
+        scene_data["current_action_file"] = str(action_name)
+        scene_data["teapot_swap_action_name"] = str(self.teapot_swap_action)
+        scene_data["teapot_swap_action_args"] = self._get_teapot_swap_action_args()
+
+    def _get_teapot_swap_action_args(self):
+        if self._teapot_swap_action_args_cache is not None:
+            return self._teapot_swap_action_args_cache
+
+        try:
+            swap_actions, _ = self._load_actions_json(self.teapot_swap_action)
+            action_list = (
+                swap_actions.get("actions", [])
+                if isinstance(swap_actions, dict)
+                else []
+            )
+            for action in action_list:
+                if not isinstance(action, dict):
+                    continue
+                if action.get("action") == "joints_rad_swap_teapot":
+                    args = action.get("args")
+                    if isinstance(args, list):
+                        self._teapot_swap_action_args_cache = args
+                        return self._teapot_swap_action_args_cache
+        except Exception as e:
+            logger.exception(f"Failed to load teapot swap action args: {e}")
+
+        self._teapot_swap_action_args_cache = []
+        return self._teapot_swap_action_args_cache
+
+    @staticmethod
+    def _extract_teapot_amount_after(full_acts):
+        if not isinstance(full_acts, list) or len(full_acts) == 0:
+            return None
+        first = full_acts[0]
+        if not isinstance(first, dict):
+            return None
+        value = first.get("teapot_tea_amount_after")
+        if value is None:
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
 
     def run_plan_file(self, plan_name: str):
         if self.stop_event.is_set():
@@ -608,6 +775,7 @@ class WorkflowExecutor:
             detector_defaults = {}
 
         context = {"teapot_handle": None}
+        self._sync_teapot_context(context)
         steps = plan["steps"]
         for idx, step in enumerate(steps, start=1):
             if self.stop_event.is_set():
@@ -654,9 +822,15 @@ class WorkflowExecutor:
         else:
             self.run_action_file(name)
 
-    def run_action_file(self, action_name: str, qualifier_context: dict | None = None):
+    def run_action_file(
+        self,
+        action_name: str,
+        qualifier_context: dict | None = None,
+    ):
         if self.stop_event.is_set():
             raise InterruptedError("stopped by user")
+
+        self._sync_teapot_context(qualifier_context)
 
         self._status(f"Running action file: {action_name}.json")
         for _ in range(5):
@@ -713,10 +887,13 @@ class WorkflowExecutor:
             )
             scene_data = {"object_infos": {}, "obstacles": dict(extra_obstacles)}
 
+        teapot_amount_after_action = None
         for action in actions["actions"]:
             if self.stop_event.is_set():
                 raise InterruptedError("stopped by user")
 
+            # Pass latest tea state into movesets via scene_data.
+            self._inject_runtime_scene_data(scene_data, action_name)
             action = self._inject_qualifier_context(action, qualifier_context)
 
             if action["action"] in self.DIRECT_ACTIONS:
@@ -728,6 +905,9 @@ class WorkflowExecutor:
                         action["args"],
                         scene_data,
                     )
+                    amount_after = self._extract_teapot_amount_after(full_acts)
+                    if amount_after is not None:
+                        teapot_amount_after_action = amount_after
                     if self.args.save_fullact:
                         save_json("fullact", "fullact", full_acts)
 
@@ -759,6 +939,9 @@ class WorkflowExecutor:
                         action["args"],
                         scene_data,
                     )
+                    amount_after = self._extract_teapot_amount_after(full_acts)
+                    if amount_after is not None:
+                        teapot_amount_after_action = amount_after
                     if self.args.save_fullact:
                         save_json("fullact", "fullact_", full_acts)
 
@@ -786,6 +969,22 @@ class WorkflowExecutor:
             if response["message"] == "Abort":
                 raise InterruptedError("aborted by isaacsim, stop current action")
             raise ValueError(f"Unknown message {response['message']}")
+
+        pour_cost = self.POURING_ACTION_COSTS.get(action_name)
+        if pour_cost is not None:
+            if teapot_amount_after_action is not None:
+                self.teapot_tea_amount = max(
+                    0,
+                    min(int(teapot_amount_after_action), self.teapot_capacity),
+                )
+            else:
+                self.teapot_tea_amount = max(0, self.teapot_tea_amount - int(pour_cost))
+            self._sync_teapot_context(qualifier_context)
+            self._persist_teapot_amount()
+            self._status(
+                f"Teapot remaining after {action_name}: "
+                f"{self.teapot_tea_amount}/{self.teapot_capacity}"
+            )
 
         self._status(f"Completed action file: {action_name}.json")
 

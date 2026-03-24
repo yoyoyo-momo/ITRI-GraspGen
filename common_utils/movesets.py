@@ -516,8 +516,8 @@ def grab_and_place_curobo(
     before_grasp_position = before_grasp_position[:2] + [
         before_grasp_position[2] + 0.05
     ]
-    grasp_position = [p + f * 0.010 for p, f in zip(position, front, strict=False)]
-    grasp_position = grasp_position[:2] + [grasp_position[2] - 0.007]
+    grasp_position = [p + f * 0.008 for p, f in zip(position, front, strict=False)]
+    # grasp_position = grasp_position[:2] + [grasp_position[2] - 0.007]
 
     after_grasp_position = grasp_position[:2] + [grasp_position[2] + 0.10]
 
@@ -589,8 +589,9 @@ def grab_and_place_curobo(
     #     qx_rotation, quaternion_orientation
     # ).tolist()
 
-    moves.append({"type": "gripper", "grip_type": "open", "wait_time": 1.0})
-    moves.append(
+    # moves.append({"type": "gripper", "grip_type": "open", "wait_time": 1.0})
+    pre_grasp_moves = []
+    pre_grasp_moves.append(
         {
             "type": "arm",
             "goal": before_grasp_position + quaternion_orientation,
@@ -599,7 +600,7 @@ def grab_and_place_curobo(
             "ignore_obstacles": [target_name],
         }
     )
-    moves.append(
+    pre_grasp_moves.append(
         {
             "type": "arm",
             "goal": grasp_position + quaternion_orientation,
@@ -609,10 +610,10 @@ def grab_and_place_curobo(
             "ignore_obstacles": [target_name],
         }
     )
-    moves.append({"type": "gripper", "grip_type": "hook", "wait_time": 1.0})
-    moves.append({"type": "gripper", "grip_type": "aid", "wait_time": 1.0})
+    # pre_grasp_moves.append({"type": "gripper", "grip_type": "hook", "wait_time": 1.0})
+    # pre_grasp_moves.append({"type": "gripper", "grip_type": "aid", "wait_time": 1.0})
 
-    moves.append(
+    pre_grasp_moves.append(
         {
             "type": "arm",
             "goal": after_grasp_position + quaternion_orientation,
@@ -620,7 +621,8 @@ def grab_and_place_curobo(
         }
     )
 
-    moves.append(
+    pour_moves = []
+    pour_moves.append(
         {
             "type": "arm",
             "goal": ready_pour_position + ready_pour_rotation,
@@ -630,7 +632,7 @@ def grab_and_place_curobo(
         }
     )
 
-    moves.append(
+    pour_moves.append(
         {
             "type": "arm",
             "goal": pour_position + pouring_rotation,
@@ -640,7 +642,7 @@ def grab_and_place_curobo(
         }
     )
 
-    moves.append(
+    pour_moves.append(
         {
             "type": "arm",
             "goal": ready_pour_position + ready_pour_rotation,
@@ -650,37 +652,7 @@ def grab_and_place_curobo(
         }
     )
 
-    moves.append(
-        {
-            "type": "arm",
-            "goal": after_grasp_position + quaternion_orientation,
-            "no_obstacles": "yesyesyes",
-            "wait_time": 0.0,
-            "ignore_obstacles": [target_name],
-        }
-    )
-
-    moves.append(
-        {
-            "type": "arm",
-            "goal": release_position + quaternion_orientation,
-            "wait_time": 0.5,
-            "no_obstacles": "yesyesyes",
-            "ignore_obstacles": [target_name],
-        }
-    )
-
-    moves.append({"type": "gripper", "grip_type": "open", "wait_time": 1.0})
-    moves.append(
-        {
-            "type": "arm",
-            "goal": after_release_position + quaternion_orientation,
-            "wait_time": 0.0,
-            "no_obstacles": "yesyesyes",
-            "ignore_obstacles": [target_name],
-            "no_curobo": True,
-        }
-    )
+    post_pour_moves = []
 
     # moves.append({"type": "gripper", "grip_type": "yay", "wait_time": 1.0})
     # moves.append(
@@ -694,7 +666,90 @@ def grab_and_place_curobo(
     #     }
     # )
 
-    full_act = {"moves": moves, "obstacles": obstacles, "skip_curobo": True}
+    tea_amount = int(scene_data.get("teapot_tea_amount", 0))
+    tea_capacity = max(1, int(scene_data.get("teapot_capacity", 1)))
+    swapped_for_continuation = False
+    # If no tea before desired pour, swap first.
+    if tea_amount <= 0:
+        pre_grasp_moves = append_swap_part1_actions(
+            pre_grasp_moves,
+            target_name,
+            grasp,
+            None,
+            scene_data,
+            insert_before_last=False,
+        )
+        tea_amount = tea_capacity
+        swapped_for_continuation = True
+
+    # This action performs one pour.
+    tea_amount -= 1
+    if swapped_for_continuation:
+        # Complete the swap only after this pour is finished.
+        post_pour_moves = append_swap_part2_actions(
+            post_pour_moves,
+            target_name,
+            grasp,
+            None,
+            scene_data,
+        )
+    elif tea_amount <= 0:
+        # Tea runs out exactly after this pour: swap now for next action.
+        post_pour_moves = append_swap_part1_actions(
+            post_pour_moves,
+            target_name,
+            grasp,
+            None,
+            scene_data,
+        )
+        post_pour_moves = append_swap_part2_actions(
+            post_pour_moves,
+            target_name,
+            grasp,
+            None,
+            scene_data,
+        )
+        tea_amount = tea_capacity
+    else:
+        post_pour_moves.append(
+            {
+                "type": "arm",
+                "goal": after_grasp_position + quaternion_orientation,
+                "no_obstacles": "yesyesyes",
+                "wait_time": 0.0,
+                "ignore_obstacles": [target_name],
+            }
+        )
+
+        post_pour_moves.append(
+            {
+                "type": "arm",
+                "goal": release_position + quaternion_orientation,
+                "wait_time": 0.5,
+                "no_obstacles": "yesyesyes",
+                "ignore_obstacles": [target_name],
+            }
+        )
+
+        # post_pour_moves.append({"type": "gripper", "grip_type": "open", "wait_time": 1.0})
+        post_pour_moves.append(
+            {
+                "type": "arm",
+                "goal": after_release_position + quaternion_orientation,
+                "wait_time": 0.0,
+                "no_obstacles": "yesyesyes",
+                "ignore_obstacles": [target_name],
+                "no_curobo": True,
+            }
+        )
+
+    moves = pre_grasp_moves + pour_moves + post_pour_moves
+    full_act = {
+        "moves": moves,
+        "obstacles": obstacles,
+        "skip_curobo": True,
+        "teapot_tea_amount_after": int(max(0, tea_amount)),
+    }
     return full_act
 
 
@@ -784,22 +839,23 @@ def grab_and_place_double(
 
     after_pour_position = [ready_pour_position[0] - 0.05] + ready_pour_position[1:]
 
-    release_position = grasp_position[:2] + [grasp_position[2] + 0.004]
-    after_release_position = release_position[:2] + [release_position[2] + 0.28]
+    # release_position = grasp_position[:2] + [grasp_position[2] + 0.004]
+    # after_release_position = release_position[:2] + [release_position[2] + 0.28]
 
     after_pour_position = [
         ready_pour_position_second[0] - 0.05
     ] + ready_pour_position_second[1:]
 
-    release_position = grasp_position[:2] + [grasp_position[2] + 0.004]
-    after_release_position = release_position[:2] + [release_position[2] + 0.28]
+    # release_position = grasp_position[:2] + [grasp_position[2] + 0.004]
+    # after_release_position = release_position[:2] + [release_position[2] + 0.28]
 
     # yay_rotation = trimesh.transformations.quaternion_multiply(
     #     qx_rotation, quaternion_orientation
     # ).tolist()
 
-    moves.append({"type": "gripper", "grip_type": "open", "wait_time": 1.0})
-    moves.append(
+    # moves.append({"type": "gripper", "grip_type": "open", "wait_time": 1.0})
+    pre_grasp_moves = []
+    pre_grasp_moves.append(
         {
             "type": "arm",
             "goal": before_grasp_position + quaternion_orientation,
@@ -808,7 +864,7 @@ def grab_and_place_double(
             "ignore_obstacles": [target_name],
         }
     )
-    moves.append(
+    pre_grasp_moves.append(
         {
             "type": "arm",
             "goal": grasp_position + quaternion_orientation,
@@ -818,10 +874,10 @@ def grab_and_place_double(
             "ignore_obstacles": [target_name],
         }
     )
-    moves.append({"type": "gripper", "grip_type": "hook", "wait_time": 1.0})
-    moves.append({"type": "gripper", "grip_type": "aid", "wait_time": 1.0})
+    # pre_grasp_moves.append({"type": "gripper", "grip_type": "hook", "wait_time": 1.0})
+    # pre_grasp_moves.append({"type": "gripper", "grip_type": "aid", "wait_time": 1.0})
 
-    moves.append(
+    pre_grasp_moves.append(
         {
             "type": "arm",
             "goal": after_grasp_position + quaternion_orientation,
@@ -831,7 +887,8 @@ def grab_and_place_double(
         }
     )
 
-    moves.append(
+    first_pour_moves = []
+    first_pour_moves.append(
         {
             "type": "arm",
             "goal": ready_pour_position + ready_pour_rotation,
@@ -841,7 +898,7 @@ def grab_and_place_double(
         }
     )
 
-    moves.append(
+    first_pour_moves.append(
         {
             "type": "arm",
             "goal": pour_position + pouring_rotation,
@@ -851,7 +908,7 @@ def grab_and_place_double(
         }
     )
 
-    moves.append(
+    first_pour_moves.append(
         {
             "type": "arm",
             "goal": ready_pour_position + ready_pour_rotation,
@@ -861,7 +918,8 @@ def grab_and_place_double(
         }
     )
 
-    moves.append(
+    second_pour_moves = []
+    second_pour_moves.append(
         {
             "type": "arm",
             "goal": ready_pour_position_second + ready_pour_rotation,
@@ -871,7 +929,7 @@ def grab_and_place_double(
         }
     )
 
-    moves.append(
+    second_pour_moves.append(
         {
             "type": "arm",
             "goal": pour_position_second + pouring_rotation,
@@ -881,7 +939,7 @@ def grab_and_place_double(
         }
     )
 
-    moves.append(
+    second_pour_moves.append(
         {
             "type": "arm",
             "goal": after_pour_position + ready_pour_rotation,
@@ -891,37 +949,38 @@ def grab_and_place_double(
         }
     )
 
-    moves.append(
-        {
-            "type": "arm",
-            "goal": after_grasp_position + quaternion_orientation,
-            "no_obstacles": "yesyesyes",
-            "wait_time": 0.0,
-            "ignore_obstacles": [target_name],
-        }
-    )
+    post_pour_moves = []
+    # post_pour_moves.append(
+    #     {
+    #         "type": "arm",
+    #         "goal": after_grasp_position + quaternion_orientation,
+    #         "no_obstacles": "yesyesyes",
+    #         "wait_time": 0.0,
+    #         "ignore_obstacles": [target_name],
+    #     }
+    # )
 
-    moves.append(
-        {
-            "type": "arm",
-            "goal": release_position + quaternion_orientation,
-            "wait_time": 0.5,
-            "no_obstacles": "yesyesyes",
-            "ignore_obstacles": [target_name],
-        }
-    )
+    # post_pour_moves.append(
+    #     {
+    #         "type": "arm",
+    #         "goal": release_position + quaternion_orientation,
+    #         "wait_time": 0.5,
+    #         "no_obstacles": "yesyesyes",
+    #         "ignore_obstacles": [target_name],
+    #     }
+    # )
 
-    moves.append({"type": "gripper", "grip_type": "open", "wait_time": 1.0})
-    moves.append(
-        {
-            "type": "arm",
-            "goal": after_release_position + quaternion_orientation,
-            "wait_time": 0.0,
-            "no_obstacles": "yesyesyes",
-            "ignore_obstacles": [target_name],
-            "no_curobo": True,
-        }
-    )
+    # post_pour_moves.append({"type": "gripper", "grip_type": "open", "wait_time": 1.0})
+    # post_pour_moves.append(
+    #     {
+    #         "type": "arm",
+    #         "goal": after_release_position + quaternion_orientation,
+    #         "wait_time": 0.0,
+    #         "no_obstacles": "yesyesyes",
+    #         "ignore_obstacles": [target_name],
+    #         "no_curobo": True,
+    #     }
+    # )
 
     # moves.append({"type": "gripper", "grip_type": "yay", "wait_time": 1.0})
     # moves.append(
@@ -935,7 +994,75 @@ def grab_and_place_double(
     #     }
     # )
 
-    full_act = {"moves": moves, "obstacles": obstacles, "skip_curobo": True}
+    tea_amount = int(scene_data.get("teapot_tea_amount", 0))
+    tea_capacity = max(1, int(scene_data.get("teapot_capacity", 1)))
+    swapped_for_continuation = False
+
+    # If no tea before first pour, swap first.
+    if tea_amount <= 0:
+        pre_grasp_moves = append_swap_part1_actions(
+            pre_grasp_moves,
+            target_name,
+            grasp,
+            None,
+            scene_data,
+            insert_before_last=False,
+        )
+        tea_amount = tea_capacity
+        swapped_for_continuation = True
+
+    # First pour.
+    tea_amount -= 1
+
+    # Scenario 1: double pour but tea runs out after first pour.
+    if tea_amount <= 0:
+        first_pour_moves = append_swap_part1_actions(
+            first_pour_moves,
+            target_name,
+            grasp,
+            None,
+            scene_data,
+        )
+        tea_amount = tea_capacity
+        swapped_for_continuation = True
+
+    # Second pour.
+    tea_amount -= 1
+
+    if swapped_for_continuation:
+        # Complete the swap only after this pour sequence is finished.
+        post_pour_moves = append_swap_part2_actions(
+            post_pour_moves,
+            target_name,
+            grasp,
+            None,
+            scene_data,
+        )
+    elif tea_amount <= 0:
+        # Tea runs out exactly after second pour: swap now for next action.
+        post_pour_moves = append_swap_part1_actions(
+            post_pour_moves,
+            target_name,
+            grasp,
+            None,
+            scene_data,
+        )
+        post_pour_moves = append_swap_part2_actions(
+            post_pour_moves,
+            target_name,
+            grasp,
+            None,
+            scene_data,
+        )
+        tea_amount = tea_capacity
+
+    moves = pre_grasp_moves + first_pour_moves + second_pour_moves + post_pour_moves
+    full_act = {
+        "moves": moves,
+        "obstacles": obstacles,
+        "skip_curobo": True,
+        "teapot_tea_amount_after": int(max(0, tea_amount)),
+    }
     return full_act
 
 
@@ -1128,6 +1255,254 @@ def gripper_test(target_name: str, grasp: np.array, args: list, scene_data: dict
     return full_act
 
 
+def joints_rad_pour_tealeaf(
+    target_name: str, grasp: np.array, args: list, scene_data: dict
+) -> list[dict]:
+    obstacles = scene_data["obstacles"]
+    moves = []
+
+    ready_joint_goal = args[0]
+    before_grasp_joint_goal = args[1]
+    grasp_joint_goal = args[2]
+    after_grasp_joint_goal = args[3]
+    ready_pour_joint_goal = args[4]
+    pour_joint_goal = args[5]
+
+    moves.append({"type": "gripper", "grip_type": "open", "wait_time": 1.0})
+    moves.append({"type": "arm", "joints_goal": ready_joint_goal, "wait_time": 0.0})
+    moves.append(
+        {"type": "arm", "joints_goal": before_grasp_joint_goal, "wait_time": 0.0}
+    )
+    moves.append({"type": "arm", "joints_goal": grasp_joint_goal, "wait_time": 0.0})
+    moves.append({"type": "gripper", "grip_type": "grasp", "wait_time": 1.0})
+    moves.append(
+        {"type": "arm", "joints_goal": after_grasp_joint_goal, "wait_time": 0.0}
+    )
+    moves.append(
+        {"type": "arm", "joints_goal": ready_pour_joint_goal, "wait_time": 0.0}
+    )
+    moves.append({"type": "arm", "joints_goal": pour_joint_goal, "wait_time": 0.0})
+    moves.append(
+        {"type": "arm", "joints_goal": ready_pour_joint_goal, "wait_time": 0.0}
+    )
+    moves.append(
+        {"type": "arm", "joints_goal": after_grasp_joint_goal, "wait_time": 0.0}
+    )
+    moves.append({"type": "arm", "joints_goal": grasp_joint_goal, "wait_time": 0.0})
+    moves.append({"type": "gripper", "grip_type": "open", "wait_time": 1.0})
+    moves.append({"type": "arm", "joints_goal": ready_joint_goal, "wait_time": 0.0})
+
+    full_act = {"moves": moves, "obstacles": obstacles, "skip_curobo": True}
+    return full_act
+
+
+def joints_rad_pour_hotwater(
+    target_name: str, grasp: np.array, args: list, scene_data: dict
+) -> list[dict]:
+    obstacles = scene_data["obstacles"]
+    moves = []
+
+    ready_joint_goal = args[0]
+    before_grasp_joint_goal = args[1]
+    grasp_joint_goal = args[2]
+    ready_pour_joint_goal = args[3]
+    pour_joint_goal = args[4]
+
+    moves.append({"type": "gripper", "grip_type": "open", "wait_time": 1.0})
+    moves.append({"type": "arm", "joints_goal": ready_joint_goal, "wait_time": 0.0})
+    moves.append(
+        {"type": "arm", "joints_goal": before_grasp_joint_goal, "wait_time": 0.0}
+    )
+    moves.append({"type": "arm", "joints_goal": grasp_joint_goal, "wait_time": 0.0})
+    # moves.append({"type": "gripper", "grip_type": "grasp", "wait_time": 1.0})
+    moves.append(
+        {"type": "arm", "joints_goal": ready_pour_joint_goal, "wait_time": 0.0}
+    )
+    moves.append({"type": "arm", "joints_goal": pour_joint_goal, "wait_time": 0.0})
+    moves.append(
+        {"type": "arm", "joints_goal": ready_pour_joint_goal, "wait_time": 0.0}
+    )
+    moves.append({"type": "arm", "joints_goal": grasp_joint_goal, "wait_time": 0.0})
+    # moves.append({"type": "gripper", "grip_type": "open", "wait_time": 1.0})
+    moves.append({"type": "arm", "joints_goal": ready_joint_goal, "wait_time": 0.0})
+
+    full_act = {"moves": moves, "obstacles": obstacles, "skip_curobo": True}
+    return full_act
+
+
+def joints_rad_grasp_filter(
+    target_name: str, grasp: np.array, args: list, scene_data: dict
+) -> list[dict]:
+    obstacles = scene_data["obstacles"]
+    moves = []
+
+    ready_joint_goal = args[0]
+    before_grasp_joint_goal = args[1]
+    grasp_joint_goal = args[2]
+    ready_place_joint_goal = args[3]
+    place_joint_goal = args[4]
+
+    moves.append({"type": "gripper", "grip_type": "tri open", "wait_time": 1.0})
+    moves.append({"type": "arm", "joints_goal": ready_joint_goal, "wait_time": 0.0})
+    moves.append(
+        {"type": "arm", "joints_goal": before_grasp_joint_goal, "wait_time": 0.0}
+    )
+    moves.append({"type": "arm", "joints_goal": grasp_joint_goal, "wait_time": 0.0})
+    moves.append(
+        {"type": "arm", "joints_goal": before_grasp_joint_goal, "wait_time": 0.0}
+    )
+    # moves.append({"type": "gripper", "grip_type": "tri close", "wait_time": 1.0})
+    moves.append(
+        {"type": "arm", "joints_goal": ready_place_joint_goal, "wait_time": 0.0}
+    )
+    moves.append({"type": "arm", "joints_goal": place_joint_goal, "wait_time": 0.0})
+    # moves.append({"type": "gripper", "grip_type": "tri open", "wait_time": 1.0})
+    moves.append(
+        {"type": "arm", "joints_goal": ready_place_joint_goal, "wait_time": 0.0}
+    )
+    moves.append({"type": "arm", "joints_goal": ready_joint_goal, "wait_time": 0.0})
+
+    full_act = {"moves": moves, "obstacles": obstacles, "skip_curobo": True}
+    return full_act
+
+
+def joints_rad_swap_teapot(
+    target_name: str,
+    grasp: np.array,
+    args: list,
+    scene_data: dict,
+    putdown: bool = False,
+) -> list[dict]:
+    obstacles = scene_data["obstacles"]
+    moves = []
+
+    before_temp_joint_goal = args[0]
+    temp_joint_goal = args[1]
+    before_grasp_joint_goal = args[2]
+    grasp_joint_goal = args[3]
+    before_place_joint_goal = args[4]
+    place_joint_goal = args[5]
+
+    moves.append({"type": "gripper", "grip_type": "open", "wait_time": 1.0})
+    moves.append(
+        {"type": "arm", "joints_goal": before_temp_joint_goal, "wait_time": 0.0}
+    )
+    moves.append({"type": "arm", "joints_goal": temp_joint_goal, "wait_time": 0.0})
+    # moves.append({"type": "gripper", "grip_type": "open", "wait_time": 1.0})
+    moves.append(
+        {"type": "arm", "joints_goal": before_temp_joint_goal, "wait_time": 0.0}
+    )
+    moves.append(
+        {"type": "arm", "joints_goal": before_grasp_joint_goal, "wait_time": 0.0}
+    )
+    moves.append({"type": "arm", "joints_goal": grasp_joint_goal, "wait_time": 0.0})
+    # moves.append({"type": "gripper", "grip_type": "hook", "wait_time": 1.0})
+    # moves.append({"type": "gripper", "grip_type": "aid", "wait_time": 1.0})
+    moves.append(
+        {"type": "arm", "joints_goal": before_grasp_joint_goal, "wait_time": 0.0}
+    )
+    moves.append(
+        {"type": "arm", "joints_goal": before_place_joint_goal, "wait_time": 0.0}
+    )
+    moves.append({"type": "arm", "joints_goal": place_joint_goal, "wait_time": 0.0})
+    # moves.append({"type": "gripper", "grip_type": "open", "wait_time": 1.0})
+    moves.append(
+        {"type": "arm", "joints_goal": before_place_joint_goal, "wait_time": 0.0}
+    )
+    moves.append(
+        {"type": "arm", "joints_goal": before_temp_joint_goal, "wait_time": 0.0}
+    )
+    moves.append({"type": "arm", "joints_goal": temp_joint_goal, "wait_time": 0.0})
+    # moves.append({"type": "gripper", "grip_type": "hook", "wait_time": 1.0})
+    # moves.append({"type": "gripper", "grip_type": "aid", "wait_time": 1.0})
+    moves.append(
+        {"type": "arm", "joints_goal": before_temp_joint_goal, "wait_time": 0.0}
+    )
+    moves.append(
+        {"type": "arm", "joints_goal": before_grasp_joint_goal, "wait_time": 0.0}
+    )
+    moves.append({"type": "arm", "joints_goal": grasp_joint_goal, "wait_time": 0.0})
+    # moves.append({"type": "gripper", "grip_type": "open", "wait_time": 1.0})
+    moves.append(
+        {"type": "arm", "joints_goal": before_grasp_joint_goal, "wait_time": 0.0}
+    )
+
+    full_act = {"moves": moves, "obstacles": obstacles, "skip_curobo": True}
+    return full_act
+
+
+def joints_rad_swap_teapot_part1(
+    target_name: str, grasp: np.array, args: list, scene_data: dict
+) -> list[dict]:
+    obstacles = scene_data["obstacles"]
+    moves = []
+
+    before_temp_joint_goal = args[0]
+    temp_joint_goal = args[1]
+    before_grasp_joint_goal = args[2]
+    grasp_joint_goal = args[3]
+
+    # Part 1: move to and grab the spare teapot.
+    # moves.append({"type": "gripper", "grip_type": "open", "wait_time": 1.0})
+    moves.append(
+        {"type": "arm", "joints_goal": before_temp_joint_goal, "wait_time": 0.0}
+    )
+    moves.append({"type": "arm", "joints_goal": temp_joint_goal, "wait_time": 0.0})
+    moves.append(
+        {"type": "arm", "joints_goal": before_temp_joint_goal, "wait_time": 0.0}
+    )
+    moves.append(
+        {"type": "arm", "joints_goal": before_grasp_joint_goal, "wait_time": 0.0}
+    )
+    moves.append({"type": "arm", "joints_goal": grasp_joint_goal, "wait_time": 0.0})
+    moves.append(
+        {"type": "arm", "joints_goal": before_grasp_joint_goal, "wait_time": 0.0}
+    )
+
+    full_act = {"moves": moves, "obstacles": obstacles, "skip_curobo": True}
+    return full_act
+
+
+def joints_rad_swap_teapot_part2(
+    target_name: str, grasp: np.array, args: list, scene_data: dict
+) -> list[dict]:
+    obstacles = scene_data["obstacles"]
+    moves = []
+
+    before_temp_joint_goal = args[0]
+    temp_joint_goal = args[1]
+    before_grasp_joint_goal = args[2]
+    grasp_joint_goal = args[3]
+    before_place_joint_goal = args[4]
+    place_joint_goal = args[5]
+
+    # Part 2: place replacement teapot, then fetch original back.
+    moves.append(
+        {"type": "arm", "joints_goal": before_place_joint_goal, "wait_time": 0.0}
+    )
+    moves.append({"type": "arm", "joints_goal": place_joint_goal, "wait_time": 0.0})
+    moves.append(
+        {"type": "arm", "joints_goal": before_place_joint_goal, "wait_time": 0.0}
+    )
+    moves.append(
+        {"type": "arm", "joints_goal": before_temp_joint_goal, "wait_time": 0.0}
+    )
+    moves.append({"type": "arm", "joints_goal": temp_joint_goal, "wait_time": 0.0})
+    moves.append(
+        {"type": "arm", "joints_goal": before_temp_joint_goal, "wait_time": 0.0}
+    )
+    moves.append(
+        {"type": "arm", "joints_goal": before_grasp_joint_goal, "wait_time": 0.0}
+    )
+    moves.append({"type": "arm", "joints_goal": grasp_joint_goal, "wait_time": 0.0})
+    moves.append(
+        {"type": "arm", "joints_goal": before_grasp_joint_goal, "wait_time": 0.0}
+    )
+
+    full_act = {"moves": moves, "obstacles": obstacles, "skip_curobo": True}
+    return full_act
+
+
 action_dict = {
     "grab_and_pour_and_place_back": grab_and_pour_and_place_back,
     "grab_and_pour_and_place_back_curobo": grab_and_pour_and_place_back_curobo_by_rotation,
@@ -1141,6 +1516,12 @@ action_dict = {
     "grab_bottle_and_place_curobo": grab_bottle_and_place_curobo,
     "grab_and_rotate": grab_and_rotate,
     "gripper_test": gripper_test,
+    "joints_rad_pour_tealeaf": joints_rad_pour_tealeaf,
+    "joints_rad_pour_hotwater": joints_rad_pour_hotwater,
+    "joints_rad_grasp_filter": joints_rad_grasp_filter,
+    "joints_rad_swap_teapot": joints_rad_swap_teapot,
+    "joints_rad_swap_teapot_part1": joints_rad_swap_teapot_part1,
+    "joints_rad_swap_teapot_part2": joints_rad_swap_teapot_part2,
 }
 
 
@@ -1162,3 +1543,104 @@ def act_with_name(
         logger.error(f"There is no such action: {action}")
     action_method = action_dict[action]
     return [action_method(target_name, grasp, args, scene_data) for grasp in grasps]
+
+
+def append_swap_actions(
+    act_list: list[dict],
+    target_name: str,
+    grasp: np.array,
+    args: list | None,
+    scene_data: dict,
+    insert_before_last: bool = True,
+) -> list[dict]:
+    swap_args = args
+    if not isinstance(swap_args, list) or len(swap_args) == 0:
+        candidate = scene_data.get("teapot_swap_action_args")
+        swap_args = candidate if isinstance(candidate, list) else []
+    if len(swap_args) == 0:
+        logger.warning("No teapot swap args found in scene_data; skip swap insertion")
+        return act_list
+
+    swap_actions = joints_rad_swap_teapot(target_name, grasp, swap_args, scene_data)[
+        "moves"
+    ]
+    if len(act_list) == 0:
+        return swap_actions
+    if not insert_before_last:
+        return swap_actions + act_list
+
+    # Insert swap actions before the last action (which is usually moving back to ready position)
+    return act_list + swap_actions
+
+
+def append_swap_part1_actions(
+    act_list: list[dict],
+    target_name: str,
+    grasp: np.array,
+    args: list | None,
+    scene_data: dict,
+    insert_before_last: bool = True,
+) -> list[dict]:
+    swap_args = args
+    if not isinstance(swap_args, list) or len(swap_args) == 0:
+        candidate = scene_data.get("teapot_swap_action_args")
+        swap_args = candidate if isinstance(candidate, list) else []
+    if len(swap_args) == 0:
+        logger.warning(
+            "No teapot swap args found in scene_data; skip part1 swap insertion"
+        )
+        return act_list
+
+    swap_actions = joints_rad_swap_teapot_part1(
+        target_name, grasp, swap_args, scene_data
+    )["moves"]
+    if len(act_list) == 0:
+        return swap_actions
+    if not insert_before_last:
+        return swap_actions + act_list
+    return act_list + swap_actions
+
+
+def append_swap_part2_actions(
+    act_list: list[dict],
+    target_name: str,
+    grasp: np.array,
+    args: list | None,
+    scene_data: dict,
+    insert_before_last: bool = True,
+) -> list[dict]:
+    swap_args = args
+    if not isinstance(swap_args, list) or len(swap_args) == 0:
+        candidate = scene_data.get("teapot_swap_action_args")
+        swap_args = candidate if isinstance(candidate, list) else []
+    if len(swap_args) == 0:
+        logger.warning(
+            "No teapot swap args found in scene_data; skip part2 swap insertion"
+        )
+        return act_list
+
+    swap_actions = joints_rad_swap_teapot_part2(
+        target_name, grasp, swap_args, scene_data
+    )["moves"]
+    if len(act_list) == 0:
+        return swap_actions
+    if not insert_before_last:
+        return swap_actions + act_list
+    return act_list + swap_actions
+
+
+def build_swap_putdown_actions(
+    target_name: str,
+    grasp: np.array,
+    scene_data: dict,
+) -> list[dict]:
+    swap_args = scene_data.get("teapot_swap_action_args")
+    if not isinstance(swap_args, list) or len(swap_args) < 6:
+        return []
+
+    # Reuse the same put-down segment from swap action joint goals.
+    return [
+        {"type": "arm", "joints_goal": swap_args[4], "wait_time": 0.0},
+        {"type": "arm", "joints_goal": swap_args[5], "wait_time": 0.0},
+        {"type": "arm", "joints_goal": swap_args[4], "wait_time": 0.0},
+    ]
