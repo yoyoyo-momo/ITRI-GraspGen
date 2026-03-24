@@ -14,3 +14,4 @@ data_for_test/obstacle/*
 !models/Download_models_guide.md
 # PointCloud_Generation/transform_config/sim1.json
 # sample_data/
+.teapot_state.json
