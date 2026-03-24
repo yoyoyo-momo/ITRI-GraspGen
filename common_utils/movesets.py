@@ -589,8 +589,8 @@ def grab_and_place_curobo(
     #     qx_rotation, quaternion_orientation
     # ).tolist()
 
-    # moves.append({"type": "gripper", "grip_type": "open", "wait_time": 1.0})
     pre_grasp_moves = []
+    pre_grasp_moves.append({"type": "gripper", "grip_type": "open", "wait_time": 1.0})
     pre_grasp_moves.append(
         {
             "type": "arm",
@@ -610,8 +610,8 @@ def grab_and_place_curobo(
             "ignore_obstacles": [target_name],
         }
     )
-    # pre_grasp_moves.append({"type": "gripper", "grip_type": "hook", "wait_time": 1.0})
-    # pre_grasp_moves.append({"type": "gripper", "grip_type": "aid", "wait_time": 1.0})
+    pre_grasp_moves.append({"type": "gripper", "grip_type": "hook", "wait_time": 1.0})
+    pre_grasp_moves.append({"type": "gripper", "grip_type": "aid", "wait_time": 1.0})
 
     pre_grasp_moves.append(
         {
@@ -731,7 +731,7 @@ def grab_and_place_curobo(
             }
         )
 
-        # post_pour_moves.append({"type": "gripper", "grip_type": "open", "wait_time": 1.0})
+        post_pour_moves.append({"type": "gripper", "grip_type": "open", "wait_time": 1.0})
         post_pour_moves.append(
             {
                 "type": "arm",
@@ -853,8 +853,8 @@ def grab_and_place_double(
     #     qx_rotation, quaternion_orientation
     # ).tolist()
 
-    # moves.append({"type": "gripper", "grip_type": "open", "wait_time": 1.0})
     pre_grasp_moves = []
+    pre_grasp_moves.append({"type": "gripper", "grip_type": "open", "wait_time": 1.0})
     pre_grasp_moves.append(
         {
             "type": "arm",
@@ -874,8 +874,8 @@ def grab_and_place_double(
             "ignore_obstacles": [target_name],
         }
     )
-    # pre_grasp_moves.append({"type": "gripper", "grip_type": "hook", "wait_time": 1.0})
-    # pre_grasp_moves.append({"type": "gripper", "grip_type": "aid", "wait_time": 1.0})
+    pre_grasp_moves.append({"type": "gripper", "grip_type": "hook", "wait_time": 1.0})
+    pre_grasp_moves.append({"type": "gripper", "grip_type": "aid", "wait_time": 1.0})
 
     pre_grasp_moves.append(
         {
@@ -949,7 +949,6 @@ def grab_and_place_double(
         }
     )
 
-    post_pour_moves = []
     # post_pour_moves.append(
     #     {
     #         "type": "arm",
@@ -993,6 +992,7 @@ def grab_and_place_double(
     #         "no_obstacles": "yesyesyes",
     #     }
     # )
+    post_pour_moves = []
 
     tea_amount = int(scene_data.get("teapot_tea_amount", 0))
     tea_capacity = max(1, int(scene_data.get("teapot_capacity", 1)))
@@ -1314,7 +1314,7 @@ def joints_rad_pour_hotwater(
         {"type": "arm", "joints_goal": before_grasp_joint_goal, "wait_time": 0.0}
     )
     moves.append({"type": "arm", "joints_goal": grasp_joint_goal, "wait_time": 0.0})
-    # moves.append({"type": "gripper", "grip_type": "grasp", "wait_time": 1.0})
+    moves.append({"type": "gripper", "grip_type": "grasp", "wait_time": 1.0})
     moves.append(
         {"type": "arm", "joints_goal": ready_pour_joint_goal, "wait_time": 0.0}
     )
@@ -1323,7 +1323,7 @@ def joints_rad_pour_hotwater(
         {"type": "arm", "joints_goal": ready_pour_joint_goal, "wait_time": 0.0}
     )
     moves.append({"type": "arm", "joints_goal": grasp_joint_goal, "wait_time": 0.0})
-    # moves.append({"type": "gripper", "grip_type": "open", "wait_time": 1.0})
+    moves.append({"type": "gripper", "grip_type": "open", "wait_time": 1.0})
     moves.append({"type": "arm", "joints_goal": ready_joint_goal, "wait_time": 0.0})
 
     full_act = {"moves": moves, "obstacles": obstacles, "skip_curobo": True}
@@ -1348,15 +1348,15 @@ def joints_rad_grasp_filter(
         {"type": "arm", "joints_goal": before_grasp_joint_goal, "wait_time": 0.0}
     )
     moves.append({"type": "arm", "joints_goal": grasp_joint_goal, "wait_time": 0.0})
+    moves.append({"type": "gripper", "grip_type": "tri close", "wait_time": 1.0})
     moves.append(
         {"type": "arm", "joints_goal": before_grasp_joint_goal, "wait_time": 0.0}
     )
-    # moves.append({"type": "gripper", "grip_type": "tri close", "wait_time": 1.0})
     moves.append(
         {"type": "arm", "joints_goal": ready_place_joint_goal, "wait_time": 0.0}
     )
     moves.append({"type": "arm", "joints_goal": place_joint_goal, "wait_time": 0.0})
-    # moves.append({"type": "gripper", "grip_type": "tri open", "wait_time": 1.0})
+    moves.append({"type": "gripper", "grip_type": "tri open", "wait_time": 1.0})
     moves.append(
         {"type": "arm", "joints_goal": ready_place_joint_goal, "wait_time": 0.0}
     )
@@ -1388,7 +1388,7 @@ def joints_rad_swap_teapot(
         {"type": "arm", "joints_goal": before_temp_joint_goal, "wait_time": 0.0}
     )
     moves.append({"type": "arm", "joints_goal": temp_joint_goal, "wait_time": 0.0})
-    # moves.append({"type": "gripper", "grip_type": "open", "wait_time": 1.0})
+    moves.append({"type": "gripper", "grip_type": "open", "wait_time": 1.0})
     moves.append(
         {"type": "arm", "joints_goal": before_temp_joint_goal, "wait_time": 0.0}
     )
@@ -1396,8 +1396,8 @@ def joints_rad_swap_teapot(
         {"type": "arm", "joints_goal": before_grasp_joint_goal, "wait_time": 0.0}
     )
     moves.append({"type": "arm", "joints_goal": grasp_joint_goal, "wait_time": 0.0})
-    # moves.append({"type": "gripper", "grip_type": "hook", "wait_time": 1.0})
-    # moves.append({"type": "gripper", "grip_type": "aid", "wait_time": 1.0})
+    moves.append({"type": "gripper", "grip_type": "hook", "wait_time": 1.0})
+    moves.append({"type": "gripper", "grip_type": "aid", "wait_time": 1.0})
     moves.append(
         {"type": "arm", "joints_goal": before_grasp_joint_goal, "wait_time": 0.0}
     )
@@ -1405,7 +1405,7 @@ def joints_rad_swap_teapot(
         {"type": "arm", "joints_goal": before_place_joint_goal, "wait_time": 0.0}
     )
     moves.append({"type": "arm", "joints_goal": place_joint_goal, "wait_time": 0.0})
-    # moves.append({"type": "gripper", "grip_type": "open", "wait_time": 1.0})
+    moves.append({"type": "gripper", "grip_type": "open", "wait_time": 1.0})
     moves.append(
         {"type": "arm", "joints_goal": before_place_joint_goal, "wait_time": 0.0}
     )
@@ -1413,8 +1413,8 @@ def joints_rad_swap_teapot(
         {"type": "arm", "joints_goal": before_temp_joint_goal, "wait_time": 0.0}
     )
     moves.append({"type": "arm", "joints_goal": temp_joint_goal, "wait_time": 0.0})
-    # moves.append({"type": "gripper", "grip_type": "hook", "wait_time": 1.0})
-    # moves.append({"type": "gripper", "grip_type": "aid", "wait_time": 1.0})
+    moves.append({"type": "gripper", "grip_type": "hook", "wait_time": 1.0})
+    moves.append({"type": "gripper", "grip_type": "aid", "wait_time": 1.0})
     moves.append(
         {"type": "arm", "joints_goal": before_temp_joint_goal, "wait_time": 0.0}
     )
@@ -1422,7 +1422,7 @@ def joints_rad_swap_teapot(
         {"type": "arm", "joints_goal": before_grasp_joint_goal, "wait_time": 0.0}
     )
     moves.append({"type": "arm", "joints_goal": grasp_joint_goal, "wait_time": 0.0})
-    # moves.append({"type": "gripper", "grip_type": "open", "wait_time": 1.0})
+    moves.append({"type": "gripper", "grip_type": "open", "wait_time": 1.0})
     moves.append(
         {"type": "arm", "joints_goal": before_grasp_joint_goal, "wait_time": 0.0}
     )
@@ -1448,6 +1448,7 @@ def joints_rad_swap_teapot_part1(
         {"type": "arm", "joints_goal": before_temp_joint_goal, "wait_time": 0.0}
     )
     moves.append({"type": "arm", "joints_goal": temp_joint_goal, "wait_time": 0.0})
+    moves.append({"type": "gripper", "grip_type": "open", "wait_time": 1.0})
     moves.append(
         {"type": "arm", "joints_goal": before_temp_joint_goal, "wait_time": 0.0}
     )
@@ -1455,6 +1456,8 @@ def joints_rad_swap_teapot_part1(
         {"type": "arm", "joints_goal": before_grasp_joint_goal, "wait_time": 0.0}
     )
     moves.append({"type": "arm", "joints_goal": grasp_joint_goal, "wait_time": 0.0})
+    moves.append({"type": "gripper", "grip_type": "hook", "wait_time": 1.0})
+    moves.append({"type": "gripper", "grip_type": "aid", "wait_time": 1.0})
     moves.append(
         {"type": "arm", "joints_goal": before_grasp_joint_goal, "wait_time": 0.0}
     )
@@ -1481,6 +1484,7 @@ def joints_rad_swap_teapot_part2(
         {"type": "arm", "joints_goal": before_place_joint_goal, "wait_time": 0.0}
     )
     moves.append({"type": "arm", "joints_goal": place_joint_goal, "wait_time": 0.0})
+    moves.append({"type": "gripper", "grip_type": "open", "wait_time": 1.0})
     moves.append(
         {"type": "arm", "joints_goal": before_place_joint_goal, "wait_time": 0.0}
     )
@@ -1488,6 +1492,8 @@ def joints_rad_swap_teapot_part2(
         {"type": "arm", "joints_goal": before_temp_joint_goal, "wait_time": 0.0}
     )
     moves.append({"type": "arm", "joints_goal": temp_joint_goal, "wait_time": 0.0})
+    moves.append({"type": "gripper", "grip_type": "hook", "wait_time": 1.0})
+    moves.append({"type": "gripper", "grip_type": "aid", "wait_time": 1.0})
     moves.append(
         {"type": "arm", "joints_goal": before_temp_joint_goal, "wait_time": 0.0}
     )
@@ -1495,6 +1501,7 @@ def joints_rad_swap_teapot_part2(
         {"type": "arm", "joints_goal": before_grasp_joint_goal, "wait_time": 0.0}
     )
     moves.append({"type": "arm", "joints_goal": grasp_joint_goal, "wait_time": 0.0})
+    moves.append({"type": "gripper", "grip_type": "open", "wait_time": 1.0})
     moves.append(
         {"type": "arm", "joints_goal": before_grasp_joint_goal, "wait_time": 0.0}
     )
@@ -1627,20 +1634,3 @@ def append_swap_part2_actions(
     if not insert_before_last:
         return swap_actions + act_list
     return act_list + swap_actions
-
-
-def build_swap_putdown_actions(
-    target_name: str,
-    grasp: np.array,
-    scene_data: dict,
-) -> list[dict]:
-    swap_args = scene_data.get("teapot_swap_action_args")
-    if not isinstance(swap_args, list) or len(swap_args) < 6:
-        return []
-
-    # Reuse the same put-down segment from swap action joint goals.
-    return [
-        {"type": "arm", "joints_goal": swap_args[4], "wait_time": 0.0},
-        {"type": "arm", "joints_goal": swap_args[5], "wait_time": 0.0},
-        {"type": "arm", "joints_goal": swap_args[4], "wait_time": 0.0},
-    ]
