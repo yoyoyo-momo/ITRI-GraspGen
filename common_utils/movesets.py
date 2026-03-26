@@ -28,7 +28,7 @@ def _apply_startup_cup_offset(
         gain_y = float(scene_data.get("startup_cup_offset_gain_y", 0.10))
     except (TypeError, ValueError):
         return list(base_position)
-    
+
     shifted = list(base_position)
     if flip_x:
         shifted[0] = float(shifted[0]) - dx_norm * gain_x
@@ -618,7 +618,11 @@ def grab_and_place_curobo(
 
     release_position = grasp_position[:2] + [grasp_position[2] + 0.004]
     # after_release_position = release_position[:2] + [release_position[2] + 0.28]
-    after_release_position = [release_position[0] - 0.15, release_position[1], release_position[2] + 0.28]
+    after_release_position = [
+        release_position[0] - 0.15,
+        release_position[1],
+        release_position[2] + 0.28,
+    ]
 
     # yay_rotation = trimesh.transformations.quaternion_multiply(
     #     qx_rotation, quaternion_orientation
@@ -766,7 +770,9 @@ def grab_and_place_curobo(
             }
         )
 
-        post_pour_moves.append({"type": "gripper", "grip_type": "open", "wait_time": 1.0})
+        post_pour_moves.append(
+            {"type": "gripper", "grip_type": "open", "wait_time": 1.0}
+        )
         post_pour_moves.append(
             {
                 "type": "arm",
@@ -885,7 +891,11 @@ def grab_and_place_double(
 
     release_position = grasp_position[:2] + [grasp_position[2] + 0.004]
     # after_release_position = release_position[:2] + [release_position[2] + 0.28]
-    after_release_position = [release_position[0] - 0.15, release_position[1], release_position[2] + 0.28]
+    after_release_position = [
+        release_position[0] - 0.15,
+        release_position[1],
+        release_position[2] + 0.28,
+    ]
 
     # yay_rotation = trimesh.transformations.quaternion_multiply(
     #     qx_rotation, quaternion_orientation
@@ -1114,7 +1124,9 @@ def grab_and_place_double(
             }
         )
 
-        post_pour_moves.append({"type": "gripper", "grip_type": "open", "wait_time": 1.0})
+        post_pour_moves.append(
+            {"type": "gripper", "grip_type": "open", "wait_time": 1.0}
+        )
         post_pour_moves.append(
             {
                 "type": "arm",

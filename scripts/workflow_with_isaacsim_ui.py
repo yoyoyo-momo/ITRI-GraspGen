@@ -529,7 +529,9 @@ class WorkflowExecutor:
             return None
         return frame
 
-    def _draw_startup_cup_preview(self, frame_bgr, roi, cups_in_roi, stable_frames, stable_required):
+    def _draw_startup_cup_preview(
+        self, frame_bgr, roi, cups_in_roi, stable_frames, stable_required
+    ):
         view = frame_bgr.copy()
         rx1, ry1, rx2, ry2 = [int(v) for v in roi]
         cv2.rectangle(view, (rx1, ry1), (rx2, ry2), (0, 255, 255), 2)
@@ -578,7 +580,13 @@ class WorkflowExecutor:
         if view_bgr is None:
             return
 
-        out_dir = Path(str(getattr(self.args, "startup_cup_preview_dir", "output/startup_cup_preview")))
+        out_dir = Path(
+            str(
+                getattr(
+                    self.args, "startup_cup_preview_dir", "output/startup_cup_preview"
+                )
+            )
+        )
         if not out_dir.is_absolute():
             out_dir = Path(self.project_root_dir) / out_dir
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -662,7 +670,9 @@ class WorkflowExecutor:
                     if key == ord("q"):
                         if save_preview:
                             self._save_startup_cup_preview(last_view, "aborted")
-                        raise InterruptedError("startup cup detector aborted by preview window")
+                        raise InterruptedError(
+                            "startup cup detector aborted by preview window"
+                        )
                 except cv2.error as e:
                     preview_enabled = False
                     self._status(f"Startup cup preview disabled: {e}")
@@ -693,7 +703,9 @@ class WorkflowExecutor:
                     f"offsets_norm={self.startup_cup_offsets_norm}"
                 )
                 if save_preview:
-                    self._save_startup_cup_preview(last_view, f"selected_{cup_count}cup")
+                    self._save_startup_cup_preview(
+                        last_view, f"selected_{cup_count}cup"
+                    )
                 if preview_enabled:
                     try:
                         cv2.destroyWindow(preview_name)

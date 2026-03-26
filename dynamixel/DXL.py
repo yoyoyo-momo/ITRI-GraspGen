@@ -12,6 +12,7 @@ from dynamixel_sdk import (
 import time
 import threading
 
+
 class DynamixelController:
     def __init__(
         self,
@@ -49,7 +50,7 @@ class DynamixelController:
         self.MOVING_THRESHOLD = 50
 
         self.CURRENT_DEADBAND = 20  # raw unit，避免抖動
-        self.goal_currents = {}   # {dxl_id: goal_current}
+        self.goal_currents = {}  # {dxl_id: goal_current}
 
         self.ADDR_HARDWARE_ERROR = 70
         self.ADDR_PRESENT_TEMPERATURE = 146
@@ -58,7 +59,7 @@ class DynamixelController:
         self.ADDR_POS_D_GAIN = 80
         self.ADDR_POS_I_GAIN = 82
         self.ADDR_POS_P_GAIN = 84
-        self.LEN_PID_ALL    = 6
+        self.LEN_PID_ALL = 6
 
         # ==============================
         # 初始化 Port / Packet
@@ -80,7 +81,7 @@ class DynamixelController:
             self.portHandler,
             self.packetHandler,
             self.ADDR_PRESENT_POSITION,
-            self.LEN_PRESENT_POSITION
+            self.LEN_PRESENT_POSITION,
         )
         for dxl_id in self.DXL_IDS:
             self.syncReadPos.addParam(dxl_id)
@@ -90,72 +91,52 @@ class DynamixelController:
             self.portHandler,
             self.packetHandler,
             self.ADDR_PRESENT_CURRENT,
-            self.LEN_PRESENT_CURRENT
+            self.LEN_PRESENT_CURRENT,
         )
         for dxl_id in self.DXL_IDS:
             self.syncReadCur.addParam(dxl_id)
 
         # torque sync write
         self.syncWriteTorque = GroupSyncWrite(
-            self.portHandler,
-            self.packetHandler,
-            self.ADDR_TORQUE_ENABLE,
-            1
+            self.portHandler, self.packetHandler, self.ADDR_TORQUE_ENABLE, 1
         )
 
         # profile acc sync write
         self.syncWriteAcc = GroupSyncWrite(
-            self.portHandler,
-            self.packetHandler,
-            self.ADDR_PROFILE_ACCELERATION,
-            4
+            self.portHandler, self.packetHandler, self.ADDR_PROFILE_ACCELERATION, 4
         )
 
         # profile vel sync write
         self.syncWriteVel = GroupSyncWrite(
-            self.portHandler,
-            self.packetHandler,
-            self.ADDR_PROFILE_VELOCITY,
-            4
+            self.portHandler, self.packetHandler, self.ADDR_PROFILE_VELOCITY, 4
         )
 
         # profile cur sync write
         self.syncWriteCur = GroupSyncWrite(
-            self.portHandler,
-            self.packetHandler,
-            self.ADDR_GOAL_CURRENT,
-            2
+            self.portHandler, self.packetHandler, self.ADDR_GOAL_CURRENT, 2
         )
 
         # goal pos sync write
         self.syncWritePos = GroupSyncWrite(
-            self.portHandler,
-            self.packetHandler,
-            self.ADDR_GOAL_POSITION,
-            4
+            self.portHandler, self.packetHandler, self.ADDR_GOAL_POSITION, 4
         )
 
         # pid sync write
         # 建立一個從位址 80 (D Gain) 開始，長度為 6 Byte 的同步寫入物件
         # (2 byte D + 2 byte I + 2 byte P)
         self.syncWritePID = GroupSyncWrite(
-            self.portHandler,
-            self.packetHandler,
-            self.ADDR_POS_D_GAIN,
-            self.LEN_PID_ALL
+            self.portHandler, self.packetHandler, self.ADDR_POS_D_GAIN, self.LEN_PID_ALL
         )
 
         # pid sync read
         # 建立一個從位址 80 (D Gain) 開始，長度為 6 Byte 的同步讀取物件
         # (2 byte D + 2 byte I + 2 byte P)
         self.syncReadPID = GroupSyncRead(
-            self.portHandler,
-            self.packetHandler,
-            self.ADDR_POS_D_GAIN,
-            self.LEN_PID_ALL
+            self.portHandler, self.packetHandler, self.ADDR_POS_D_GAIN, self.LEN_PID_ALL
         )
         for dxl_id in self.DXL_IDS:
             self.syncReadPID.addParam(dxl_id)
+
     # ==============================
     # 小工具：uint32 -> int32
     # 小工具：uint16 -> int16
@@ -203,9 +184,12 @@ class DynamixelController:
         """
         for dxl_id in self.DXL_IDS:
             param = [
-                DXL_LOBYTE(d), DXL_HIBYTE(d),  # Address 80-81: D
-                DXL_LOBYTE(i), DXL_HIBYTE(i),  # Address 82-83: I
-                DXL_LOBYTE(p), DXL_HIBYTE(p)   # Address 84-85: P
+                DXL_LOBYTE(d),
+                DXL_HIBYTE(d),  # Address 80-81: D
+                DXL_LOBYTE(i),
+                DXL_HIBYTE(i),  # Address 82-83: I
+                DXL_LOBYTE(p),
+                DXL_HIBYTE(p),  # Address 84-85: P
             ]
             self.syncWritePID.addParam(dxl_id, param)
 
@@ -229,7 +213,7 @@ class DynamixelController:
                 DXL_LOBYTE(DXL_LOWORD(acc)),
                 DXL_HIBYTE(DXL_LOWORD(acc)),
                 DXL_LOBYTE(DXL_HIWORD(acc)),
-                DXL_HIBYTE(DXL_HIWORD(acc))
+                DXL_HIBYTE(DXL_HIWORD(acc)),
             ]
             self.syncWriteAcc.addParam(dxl_id, acc_param)
 
@@ -242,25 +226,23 @@ class DynamixelController:
                 DXL_LOBYTE(DXL_LOWORD(vel)),
                 DXL_HIBYTE(DXL_LOWORD(vel)),
                 DXL_LOBYTE(DXL_HIWORD(vel)),
-                DXL_HIBYTE(DXL_HIWORD(vel))
+                DXL_HIBYTE(DXL_HIWORD(vel)),
             ]
             self.syncWriteVel.addParam(dxl_id, vel_param)
 
         self.syncWriteVel.txPacket()
         self.syncWriteVel.clearParam()
 
-        #cul
+        # cul
         for dxl_id in self.DXL_IDS:
-            cur_param = [
-                DXL_LOBYTE(cur),
-                DXL_HIBYTE(cur)
-            ]
+            cur_param = [DXL_LOBYTE(cur), DXL_HIBYTE(cur)]
             self.syncWriteCur.addParam(dxl_id, cur_param)
 
         self.syncWriteCur.txPacket()
         self.syncWriteCur.clearParam()
 
         print("加速度:", acc, "速度:", vel, "電流:", cur)
+
     # ==============================
     # 取得目前位置（SyncRead）
     # ==============================
@@ -270,14 +252,10 @@ class DynamixelController:
 
         for dxl_id in self.DXL_IDS:
             if self.syncReadPos.isAvailable(
-                dxl_id,
-                self.ADDR_PRESENT_POSITION,
-                self.LEN_PRESENT_POSITION
+                dxl_id, self.ADDR_PRESENT_POSITION, self.LEN_PRESENT_POSITION
             ):
                 pos = self.syncReadPos.getData(
-                    dxl_id,
-                    self.ADDR_PRESENT_POSITION,
-                    self.LEN_PRESENT_POSITION
+                    dxl_id, self.ADDR_PRESENT_POSITION, self.LEN_PRESENT_POSITION
                 )
                 positions[dxl_id] = pos
             else:
@@ -293,22 +271,20 @@ class DynamixelController:
 
         dxl_comm_result = self.syncReadCur.txRxPacket()
         if dxl_comm_result != COMM_SUCCESS:
-            print("❌ SyncReadCur 失敗:",
-                  self.packetHandler.getTxRxResult(dxl_comm_result))
+            print(
+                "❌ SyncReadCur 失敗:",
+                self.packetHandler.getTxRxResult(dxl_comm_result),
+            )
             for dxl_id in self.DXL_IDS:
                 currents[dxl_id] = "N/A"
             return currents
 
         for dxl_id in self.DXL_IDS:
             if self.syncReadCur.isAvailable(
-                dxl_id,
-                self.ADDR_PRESENT_CURRENT,
-                self.LEN_PRESENT_CURRENT
+                dxl_id, self.ADDR_PRESENT_CURRENT, self.LEN_PRESENT_CURRENT
             ):
                 raw = self.syncReadCur.getData(
-                    dxl_id,
-                    self.ADDR_PRESENT_CURRENT,
-                    self.LEN_PRESENT_CURRENT
+                    dxl_id, self.ADDR_PRESENT_CURRENT, self.LEN_PRESENT_CURRENT
                 )
                 cur = self._int16_from_uint16(raw)
                 currents[dxl_id] = cur
@@ -325,8 +301,7 @@ class DynamixelController:
         self,
         positions_array,
         # check_interval=0.01
-        ):
-
+    ):
         if len(positions_array) != len(self.DXL_IDS):
             raise ValueError("positions_array 長度必須等於馬達數量")
 
@@ -338,7 +313,7 @@ class DynamixelController:
                 DXL_LOBYTE(DXL_LOWORD(pos)),
                 DXL_HIBYTE(DXL_LOWORD(pos)),
                 DXL_LOBYTE(DXL_HIWORD(pos)),
-                DXL_HIBYTE(DXL_HIWORD(pos))
+                DXL_HIBYTE(DXL_HIWORD(pos)),
             ]
             self.syncWritePos.addParam(dxl_id, param)
 
@@ -379,11 +354,8 @@ class DynamixelController:
         error_motors = []
 
         for dxl_id in self.DXL_IDS:
-
             err, comm, _ = self.packetHandler.read1ByteTxRx(
-                self.portHandler,
-                dxl_id,
-                self.ADDR_HARDWARE_ERROR
+                self.portHandler, dxl_id, self.ADDR_HARDWARE_ERROR
             )
 
             if comm != COMM_SUCCESS:
@@ -391,7 +363,6 @@ class DynamixelController:
                 continue
 
             if err != 0:
-
                 decoded = self.decode_error(err)
 
                 print(f"⚠ Motor {dxl_id} error:", decoded)
@@ -409,7 +380,6 @@ class DynamixelController:
         print("🔧 Recovering motors:", error_motors)
 
         for dxl_id in error_motors:
-
             self.packetHandler.reboot(self.portHandler, dxl_id)
             time.sleep(0.3)
 
@@ -421,7 +391,6 @@ class DynamixelController:
     def start_watchdog(self):
         def monitor():
             while True:
-
                 errors = self.check_hardware_errors()
 
                 if errors:
@@ -432,13 +401,13 @@ class DynamixelController:
         t = threading.Thread(target=monitor, daemon=True)
         t.start()
 
-if __name__ == '__main__':
 
+if __name__ == "__main__":
     dxl = DynamixelController(device_name="COM5")
 
     # dxl.reset_motors()
     # dxl.enable_torque()
-    dxl.set_PID(2100,0,1900)
+    dxl.set_PID(2100, 0, 1900)
     # dxl.set_profile(acc=50, vel=80, cur=100)
 
     # dxl.set_goal_currents({
