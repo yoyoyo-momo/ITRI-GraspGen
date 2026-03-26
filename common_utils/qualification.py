@@ -126,7 +126,7 @@ def teapot_qualifier(
     left, up, front = get_left_up_and_front(grasp)
 
     # Prevent top-down approach
-    if up[2] < 0.96:
+    if up[2] < 0.97:
         return False
 
     if front[0] < 0:
@@ -137,7 +137,7 @@ def teapot_qualifier(
     horizontal_min_point = np.array([min_point[0], min_point[1], 0])
     horizontal_distance = np.linalg.norm(horizontal_position - horizontal_min_point)
     if (
-        horizontal_distance > 0.15
+        horizontal_distance > 0.16
     ):  # too close to the center, likely to collide with the lid
         return False
 
@@ -151,7 +151,7 @@ def teapot_qualifier(
         horizontal_axis /= np.linalg.norm(horizontal_axis)
         dot_product = np.clip(np.dot(horizontal_front, horizontal_axis), -1.0, 1.0)
         angle = np.arccos(dot_product)
-        if abs(angle) > np.deg2rad(20):  #         return False
+        if abs(angle) > np.deg2rad(16):  #         return False
             return False
 
     # if left[0] < -0.3 or left[0] > 0.3:
