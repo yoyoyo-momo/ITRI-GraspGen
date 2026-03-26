@@ -18,8 +18,9 @@ def run_in_thread(func):
 
 
 def enable_torque():
+    dxl.set_PID(p=1200, i=0, d=1000)
     dxl.enable_torque()
-    dxl.set_profile(acc=50, vel=100, cur=150)
+    dxl.set_profile(acc=50, vel=150, cur=150)
     # dxl.set_goal_currents({
     #     1: 45,
     #     2: 45,
