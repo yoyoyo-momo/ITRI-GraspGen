@@ -7,7 +7,7 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import messagebox
 from tkinter import font as tkfont
-from threading import Thread, Event
+from threading import Thread, Event, current_thread, main_thread
 from queue import Queue, Empty
 
 import numpy as np
@@ -232,9 +232,45 @@ def parse_args():
         help="Open interactive ROI picker and print x1,y1,x2,y2, then exit",
     )
     parser.add_argument(
+        "--startup-cup-show-preview",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Show live startup cup detector preview window",
+    )
+    parser.add_argument(
+        "--startup-cup-save-preview",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Save annotated startup cup detector preview image",
+    )
+    parser.add_argument(
+        "--startup-cup-preview-dir",
+        type=str,
+        default="output/startup_cup_preview",
+        help="Directory to save startup cup preview images",
+    )
+    parser.add_argument(
+        "--startup-cup-offset-gain-x",
+        type=float,
+        default=0.15,
+        help="Robot-space x shift (meters) for +1.0 normalized ROI horizontal offset",
+    )
+    parser.add_argument(
+        "--startup-cup-offset-gain-y",
+        type=float,
+        default=0.15,
+        help="Robot-space y shift (meters) for +1.0 normalized ROI vertical offset",
+    )
+    parser.add_argument(
+        "--startup-cup-offset-flip-x",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Flip X offset sign when mapping camera image X to robot X",
+    )
+    parser.add_argument(
         "--teapot-capacity",
         type=int,
-        default=2,
+        default=3,
         help="Tea units in a full teapot after swap",
     )
     parser.add_argument(
@@ -309,6 +345,9 @@ class WorkflowExecutor:
         self.pc_generator = None
         self.grasp_generator = None
         self.startup_cup_cap = None
+        self.startup_cup_roi = None
+        self.startup_cup_offsets_norm = []
+        self.startup_cup_boxes = []
 
         self.teapot_capacity = max(1, int(getattr(self.args, "teapot_capacity", 2)))
         initial_amount = int(getattr(self.args, "teapot_initial_amount", -1))
@@ -433,7 +472,33 @@ class WorkflowExecutor:
         rx1, ry1, rx2, ry2 = roi
         return rx1 <= cx <= rx2 and ry1 <= cy <= ry2
 
-    def _count_cups_in_roi(self, color_bgr, roi) -> int:
+    @staticmethod
+    def _cup_detection_from_box(box, roi):
+        x1, y1, x2, y2 = [int(v) for v in box.box]
+        cx = (x1 + x2) / 2.0
+        cy = (y1 + y2) / 2.0
+
+        rx1, ry1, rx2, ry2 = roi
+        roi_cx = (rx1 + rx2) / 2.0
+        roi_cy = (ry1 + ry2) / 2.0
+        roi_w = max(1.0, float(rx2 - rx1))
+        roi_h = max(1.0, float(ry2 - ry1))
+
+        dx_px = cx - roi_cx
+        dy_px = cy - roi_cy
+        dx_norm = dx_px / roi_w
+        dy_norm = dy_px / roi_h
+
+        return {
+            "box": [x1, y1, x2, y2],
+            "center": [cx, cy],
+            "offset_px": [dx_px, dy_px],
+            "offset_norm": [dx_norm, dy_norm],
+            "phrase": str(box.phrase),
+            "score": float(box.logits),
+        }
+
+    def _get_cups_in_roi(self, color_bgr, roi) -> list[dict]:
         pc_generator = self._get_pc_generator()
         boxes = pc_generator.groundingdino_predictor.predict_boxes(
             color_bgr,
@@ -441,14 +506,16 @@ class WorkflowExecutor:
             box_threshold=self.args.startup_cup_box_threshold,
             text_threshold=self.args.startup_cup_text_threshold,
         )
-        cup_count = 0
+        cups_in_roi = []
         for box in boxes:
             phrase = str(box.phrase).lower()
             if "cup" not in phrase:
                 continue
             if self._center_in_roi(box.box, roi):
-                cup_count += 1
-        return cup_count
+                cups_in_roi.append(self._cup_detection_from_box(box, roi))
+        # Stable mapping for action args: index cups from top to bottom in image.
+        cups_in_roi.sort(key=lambda d: (d["center"][1], d["center"][0]))
+        return cups_in_roi
 
     def _get_startup_cup_frame(self):
         if self.startup_cup_cap is None:
@@ -461,6 +528,70 @@ class WorkflowExecutor:
         if not ok or frame is None:
             return None
         return frame
+
+    def _draw_startup_cup_preview(self, frame_bgr, roi, cups_in_roi, stable_frames, stable_required):
+        view = frame_bgr.copy()
+        rx1, ry1, rx2, ry2 = [int(v) for v in roi]
+        cv2.rectangle(view, (rx1, ry1), (rx2, ry2), (0, 255, 255), 2)
+
+        for idx, cup in enumerate(cups_in_roi, start=1):
+            x1, y1, x2, y2 = [int(v) for v in cup["box"]]
+            cx, cy = [int(v) for v in cup["center"]]
+            dx, dy = cup["offset_norm"]
+            cv2.rectangle(view, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            cv2.circle(view, (cx, cy), 3, (0, 255, 0), -1)
+            label = f"cup{idx} dx={dx:+.3f} dy={dy:+.3f}"
+            cv2.putText(
+                view,
+                label,
+                (x1, max(18, y1 - 8)),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                (0, 255, 0),
+                1,
+                cv2.LINE_AA,
+            )
+
+        cv2.putText(
+            view,
+            f"cups={len(cups_in_roi)} stable={stable_frames}/{stable_required}",
+            (10, 24),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (50, 200, 255),
+            2,
+            cv2.LINE_AA,
+        )
+        cv2.putText(
+            view,
+            "Press q to abort startup detector",
+            (10, 50),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.55,
+            (220, 220, 220),
+            1,
+            cv2.LINE_AA,
+        )
+        return view
+
+    def _save_startup_cup_preview(self, view_bgr, reason: str):
+        if view_bgr is None:
+            return
+
+        out_dir = Path(str(getattr(self.args, "startup_cup_preview_dir", "output/startup_cup_preview")))
+        if not out_dir.is_absolute():
+            out_dir = Path(self.project_root_dir) / out_dir
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        ts = time.strftime("%Y%m%d_%H%M%S")
+        filename = f"startup_cup_{reason}_{ts}.png"
+        out_path = out_dir / filename
+
+        ok = cv2.imwrite(str(out_path), view_bgr)
+        if ok:
+            self._status(f"Saved startup cup preview: {out_path}")
+        else:
+            self._status(f"Failed to save startup cup preview: {out_path}")
 
     def detect_startup_action(self) -> str | None:
         if not getattr(self.args, "startup_cup_auto", False):
@@ -483,6 +614,17 @@ class WorkflowExecutor:
             f"{roi}, stable_frames={stable_required}, timeout={timeout_text}"
         )
 
+        preview_enabled = bool(getattr(self.args, "startup_cup_show_preview", False))
+        save_preview = bool(getattr(self.args, "startup_cup_save_preview", False))
+        if preview_enabled and current_thread() is not main_thread():
+            preview_enabled = False
+            self._status(
+                "Startup cup preview disabled in worker thread; "
+                "OpenCV/Qt windows must run on main thread"
+            )
+        preview_name = "Startup Cup Detector"
+        last_view = None
+
         while True:
             if timeout_sec is not None and (time.time() - start_ts) >= timeout_sec:
                 break
@@ -494,7 +636,8 @@ class WorkflowExecutor:
                 time.sleep(0.05)
                 continue
 
-            cup_count = self._count_cups_in_roi(color_bgr, roi)
+            cups_in_roi = self._get_cups_in_roi(color_bgr, roi)
+            cup_count = len(cups_in_roi)
 
             if cup_count == last_count and cup_count in (1, 2):
                 stable_frames += 1
@@ -507,7 +650,38 @@ class WorkflowExecutor:
                 f"cups_in_roi={cup_count}, stable={stable_frames}/{stable_required}"
             )
 
+            if preview_enabled or save_preview:
+                last_view = self._draw_startup_cup_preview(
+                    color_bgr, roi, cups_in_roi, stable_frames, stable_required
+                )
+
+            if preview_enabled:
+                try:
+                    cv2.imshow(preview_name, last_view)
+                    key = cv2.waitKey(1) & 0xFF
+                    if key == ord("q"):
+                        if save_preview:
+                            self._save_startup_cup_preview(last_view, "aborted")
+                        raise InterruptedError("startup cup detector aborted by preview window")
+                except cv2.error as e:
+                    preview_enabled = False
+                    self._status(f"Startup cup preview disabled: {e}")
+                    try:
+                        cv2.destroyWindow(preview_name)
+                    except Exception:
+                        pass
+
             if stable_frames >= stable_required and cup_count in (1, 2):
+                self.startup_cup_roi = list(roi)
+                self.startup_cup_offsets_norm = [
+                    [
+                        float(cup["offset_norm"][0]),
+                        float(cup["offset_norm"][1]),
+                    ]
+                    for cup in cups_in_roi
+                ]
+                self.startup_cup_boxes = [list(cup["box"]) for cup in cups_in_roi]
+
                 action_name = (
                     self.args.startup_cup_action_one
                     if cup_count == 1
@@ -515,11 +689,27 @@ class WorkflowExecutor:
                 )
                 self._load_actions_json(action_name)
                 self._status(
-                    f"Startup cup detector selected action: {action_name}.json"
+                    f"Startup cup detector selected action: {action_name}.json, "
+                    f"offsets_norm={self.startup_cup_offsets_norm}"
                 )
+                if save_preview:
+                    self._save_startup_cup_preview(last_view, f"selected_{cup_count}cup")
+                if preview_enabled:
+                    try:
+                        cv2.destroyWindow(preview_name)
+                    except Exception:
+                        pass
                 return action_name
 
             time.sleep(0.05)
+
+        if preview_enabled:
+            try:
+                cv2.destroyWindow(preview_name)
+            except Exception:
+                pass
+        if save_preview:
+            self._save_startup_cup_preview(last_view, "timeout")
 
         raise ValueError(
             "Startup cup detector timeout before stable 1 or 2 cups in ROI was found"
@@ -720,6 +910,21 @@ class WorkflowExecutor:
         scene_data["current_action_file"] = str(action_name)
         scene_data["teapot_swap_action_name"] = str(self.teapot_swap_action)
         scene_data["teapot_swap_action_args"] = self._get_teapot_swap_action_args()
+        if self.startup_cup_roi is not None:
+            scene_data["startup_cup_roi"] = list(self.startup_cup_roi)
+            scene_data["startup_cup_offsets_norm"] = [
+                [float(v[0]), float(v[1])] for v in self.startup_cup_offsets_norm
+            ]
+            scene_data["startup_cup_boxes"] = [list(b) for b in self.startup_cup_boxes]
+        scene_data["startup_cup_offset_gain_x"] = float(
+            self.args.startup_cup_offset_gain_x
+        )
+        scene_data["startup_cup_offset_gain_y"] = float(
+            self.args.startup_cup_offset_gain_y
+        )
+        scene_data["startup_cup_offset_flip_x"] = bool(
+            self.args.startup_cup_offset_flip_x
+        )
 
     def _get_teapot_swap_action_args(self):
         if self._teapot_swap_action_args_cache is not None:
@@ -991,6 +1196,10 @@ class WorkflowExecutor:
     def close(self):
         self._status("turning off zed camera")
         try:
+            cv2.destroyWindow("Startup Cup Detector")
+        except Exception:
+            pass
+        try:
             if self.startup_cup_cap is not None:
                 self.startup_cup_cap.release()
                 self.startup_cup_cap = None
@@ -1182,14 +1391,52 @@ class WorkflowUI:
 
         self.stop_event.clear()
         self._set_running_ui(True)
-        self.worker = Thread(target=self._run_worker, args=(selected,), daemon=True)
+        startup_action_override = None
+
+        # OpenCV/Qt preview windows must run on the main thread.
+        if self.args.startup_cup_auto and self.args.startup_cup_show_preview:
+            detector_executor = None
+            try:
+                self.status_queue.put("Running startup cup detector on main thread")
+                detector_executor = WorkflowExecutor(
+                    self.args,
+                    self.project_root_dir,
+                    self.stop_event,
+                    self.status_queue,
+                )
+                startup_action_override = detector_executor.detect_startup_action()
+            except InterruptedError as e:
+                self.status_queue.put(f"Workflow interrupted: {e}")
+                self._set_running_ui(False)
+                return
+            except Exception as e:
+                logger.exception(e)
+                self.status_queue.put(f"Workflow failed: {e}")
+                self.root.after(
+                    0,
+                    lambda msg=str(e): messagebox.showerror("Workflow Error", msg),
+                )
+                self._set_running_ui(False)
+                return
+            finally:
+                if detector_executor is not None:
+                    try:
+                        detector_executor.close()
+                    except Exception:
+                        pass
+
+        self.worker = Thread(
+            target=self._run_worker,
+            args=(selected, startup_action_override),
+            daemon=True,
+        )
         self.worker.start()
 
     def _stop_run(self):
         self.stop_event.set()
         self.status_queue.put("Stop requested")
 
-    def _run_worker(self, selected_action_names):
+    def _run_worker(self, selected_action_names, startup_action_override=None):
         executor = None
         try:
             self.status_queue.put("Starting workflow")
@@ -1199,7 +1446,9 @@ class WorkflowUI:
                 self.stop_event,
                 self.status_queue,
             )
-            startup_action = executor.detect_startup_action()
+            startup_action = startup_action_override
+            if startup_action is None:
+                startup_action = executor.detect_startup_action()
             if startup_action is not None:
                 selected_action_names = [startup_action] + list(selected_action_names)
 

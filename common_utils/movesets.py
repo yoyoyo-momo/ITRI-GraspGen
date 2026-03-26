@@ -8,6 +8,40 @@ HOME_SIGNAL = [326.8, -140.2, 212.6, 90.0, 0, 90.0]
 logger = logging.getLogger(__name__)
 
 
+def _apply_startup_cup_offset(
+    base_position: list[float], scene_data: dict, cup_index: int
+) -> list[float]:
+    """Shift a base xyz position by startup cup ROI offset projected into robot x/y."""
+    offsets = scene_data.get("startup_cup_offsets_norm")
+    flip_x = scene_data.get("startup_cup_offset_flip_x")
+    if not isinstance(offsets, list) or cup_index >= len(offsets):
+        return list(base_position)
+
+    offset = offsets[cup_index]
+    if not isinstance(offset, list) or len(offset) < 2:
+        return list(base_position)
+
+    try:
+        dx_norm = float(offset[0])
+        dy_norm = float(offset[1])
+        gain_x = float(scene_data.get("startup_cup_offset_gain_x", 0.10))
+        gain_y = float(scene_data.get("startup_cup_offset_gain_y", 0.10))
+    except (TypeError, ValueError):
+        return list(base_position)
+    
+    shifted = list(base_position)
+    if flip_x:
+        shifted[0] = float(shifted[0]) - dx_norm * gain_x
+    else:
+        shifted[0] = float(shifted[0]) + dx_norm * gain_x
+    shifted[1] = float(shifted[1]) + dy_norm * gain_y
+    if dy_norm >= 0:
+        shifted[1] += 0.08
+    else:
+        shifted[1] += 0.02
+    return shifted
+
+
 def pick_and_pour_and_put_back(grasp: np.array) -> list[dict]:
     moves = []
     # fetch basic infos
@@ -521,7 +555,7 @@ def grab_and_place_curobo(
 
     after_grasp_position = grasp_position[:2] + [grasp_position[2] + 0.10]
 
-    ready_pour_position = args[0]
+    ready_pour_position = _apply_startup_cup_offset(args[0], scene_data, cup_index=0)
     pour_position = [
         ready_pour_position[0],
         ready_pour_position[1] - 0.05,
@@ -583,7 +617,8 @@ def grab_and_place_curobo(
     # after_pour_position = [ready_pour_position[0] - 0.05] + ready_pour_position[1:]
 
     release_position = grasp_position[:2] + [grasp_position[2] + 0.004]
-    after_release_position = release_position[:2] + [release_position[2] + 0.28]
+    # after_release_position = release_position[:2] + [release_position[2] + 0.28]
+    after_release_position = [release_position[0] - 0.15, release_position[1], release_position[2] + 0.28]
 
     # yay_rotation = trimesh.transformations.quaternion_multiply(
     #     qx_rotation, quaternion_orientation
@@ -777,14 +812,16 @@ def grab_and_place_double(
 
     after_grasp_position = grasp_position[:2] + [grasp_position[2] + 0.10]
 
-    ready_pour_position = args[0]
+    ready_pour_position = _apply_startup_cup_offset(args[0], scene_data, cup_index=0)
     pour_position = [
         ready_pour_position[0],
         ready_pour_position[1] - 0.05,
         ready_pour_position[2] + 0.070,
     ]
 
-    ready_pour_position_second = args[1]
+    ready_pour_position_second = _apply_startup_cup_offset(
+        args[0], scene_data, cup_index=1
+    )
     pour_position_second = [
         ready_pour_position_second[0],
         ready_pour_position_second[1] - 0.05,
@@ -846,8 +883,9 @@ def grab_and_place_double(
         ready_pour_position_second[0] - 0.05
     ] + ready_pour_position_second[1:]
 
-    # release_position = grasp_position[:2] + [grasp_position[2] + 0.004]
+    release_position = grasp_position[:2] + [grasp_position[2] + 0.004]
     # after_release_position = release_position[:2] + [release_position[2] + 0.28]
+    after_release_position = [release_position[0] - 0.15, release_position[1], release_position[2] + 0.28]
 
     # yay_rotation = trimesh.transformations.quaternion_multiply(
     #     qx_rotation, quaternion_orientation
@@ -1055,6 +1093,38 @@ def grab_and_place_double(
             scene_data,
         )
         tea_amount = tea_capacity
+    else:
+        post_pour_moves.append(
+            {
+                "type": "arm",
+                "goal": after_grasp_position + quaternion_orientation,
+                "no_obstacles": "yesyesyes",
+                "wait_time": 0.0,
+                "ignore_obstacles": [target_name],
+            }
+        )
+
+        post_pour_moves.append(
+            {
+                "type": "arm",
+                "goal": release_position + quaternion_orientation,
+                "wait_time": 0.5,
+                "no_obstacles": "yesyesyes",
+                "ignore_obstacles": [target_name],
+            }
+        )
+
+        post_pour_moves.append({"type": "gripper", "grip_type": "open", "wait_time": 1.0})
+        post_pour_moves.append(
+            {
+                "type": "arm",
+                "goal": after_release_position + quaternion_orientation,
+                "wait_time": 0.0,
+                "no_obstacles": "yesyesyes",
+                "ignore_obstacles": [target_name],
+                "no_curobo": True,
+            }
+        )
 
     moves = pre_grasp_moves + first_pour_moves + second_pour_moves + post_pour_moves
     full_act = {
