@@ -3,6 +3,7 @@ import argparse
 import logging
 import json
 import time
+import copy
 from pathlib import Path
 import tkinter as tk
 from tkinter import messagebox
@@ -348,6 +349,7 @@ class WorkflowExecutor:
         self.startup_cup_roi = None
         self.startup_cup_offsets_norm = []
         self.startup_cup_boxes = []
+        self._precomputed_action_cache = {}
 
         self.teapot_capacity = max(1, int(getattr(self.args, "teapot_capacity", 2)))
         initial_amount = int(getattr(self.args, "teapot_initial_amount", -1))
@@ -963,6 +965,196 @@ class WorkflowExecutor:
         self._teapot_swap_action_args_cache = []
         return self._teapot_swap_action_args_cache
 
+    def _build_scene_data_for_actions(self, actions: dict):
+        extra_obstacles = actions.get("extra_obstacles", {})
+        requires_pointcloud = any(
+            action.get("action") not in self.NO_POINTCLOUD_ACTIONS
+            for action in actions["actions"]
+        )
+
+        if requires_pointcloud:
+            track_names = list(actions["track"])
+            detection_success = False
+            scene_data = None
+            while True:
+                for _ in range(20):
+                    if self.stop_event.is_set():
+                        raise InterruptedError("stopped by user")
+                    try:
+                        blockages = actions.get("blockages")
+                        valid_region = actions.get("valid_region")
+                        pc_generator = self._get_pc_generator()
+                        scene_data = pc_generator.generate_pointcloud(
+                            track_names,
+                            need_confirm=False,
+                            blockages=blockages,
+                            valid_region=valid_region,
+                        )
+                        detection_success = True
+                        break
+                    except ValueError as e:
+                        logger.exception(f"{e}, try again")
+                        time.sleep(0.1)
+                        continue
+                else:
+                    self._status("Failed to detect using groundingDINO")
+                if detection_success:
+                    break
+                time.sleep(0.3)
+
+            scene_data = silent_transform_multiple_obj_with_name_dict(
+                scene_data, self.args.transform_config
+            )
+            scene_data = create_obstacle_info(scene_data, extra_obstacles)
+        else:
+            self._status(
+                "Skipping pointcloud generation (all actions are joint/gripper-only)"
+            )
+            scene_data = {"object_infos": {}, "obstacles": dict(extra_obstacles)}
+
+        return scene_data, requires_pointcloud
+
+    def _precompute_action_cache(self, action_name: str):
+        if action_name in self._precomputed_action_cache:
+            return
+
+        actions, actions_filepath = self._load_actions_json(action_name)
+        if not is_actions_format_valid_v1028(actions):
+            raise ValueError(f"bad actions file format: {actions_filepath}")
+
+        self._status(f"Precomputing GraspGen cache for {action_name}.json")
+        scene_data, requires_pointcloud = self._build_scene_data_for_actions(actions)
+        grasps_by_index = {}
+
+        if requires_pointcloud:
+            for idx, action in enumerate(actions["actions"]):
+                if self.stop_event.is_set():
+                    raise InterruptedError("stopped by user")
+                if action.get("action") in self.DIRECT_ACTIONS:
+                    continue
+                grasp_generator = self._get_grasp_generator()
+                grasps_by_index[idx] = grasp_generator.generate_grasp(scene_data, action)
+
+        self._precomputed_action_cache[action_name] = {
+            "scene_data": scene_data,
+            "grasps_by_index": grasps_by_index,
+        }
+        self._status(f"Precomputed GraspGen cache ready for {action_name}.json")
+
+    def precompute_startup_action_candidates(self):
+        if not getattr(self.args, "startup_cup_auto", False):
+            return
+
+        candidates = []
+        for name in (
+            str(getattr(self.args, "startup_cup_action_one", "")).strip(),
+            str(getattr(self.args, "startup_cup_action_two", "")).strip(),
+        ):
+            if name and name not in candidates:
+                candidates.append(name)
+
+        if len(candidates) == 0:
+            return
+
+        self._status(
+            "Startup precompute: running GraspGen before cup detection for "
+            + ", ".join(f"{name}.json" for name in candidates)
+        )
+
+        # Fast path: cup action one/two often share the same grasp context; precompute once.
+        if len(candidates) == 2:
+            first_name, second_name = candidates
+            if (
+                first_name not in self._precomputed_action_cache
+                and second_name not in self._precomputed_action_cache
+            ):
+                try:
+                    first_actions, first_path = self._load_actions_json(first_name)
+                    second_actions, second_path = self._load_actions_json(second_name)
+                    if not is_actions_format_valid_v1028(first_actions):
+                        raise ValueError(f"bad actions file format: {first_path}")
+                    if not is_actions_format_valid_v1028(second_actions):
+                        raise ValueError(f"bad actions file format: {second_path}")
+
+                    def _non_direct_action_indices(actions_dict):
+                        return [
+                            idx
+                            for idx, action in enumerate(actions_dict["actions"])
+                            if action.get("action") not in self.DIRECT_ACTIONS
+                        ]
+
+                    first_non_direct = _non_direct_action_indices(first_actions)
+                    second_non_direct = _non_direct_action_indices(second_actions)
+
+                    can_share = (
+                        len(first_non_direct) == 1
+                        and len(second_non_direct) == 1
+                        and first_actions.get("track") == second_actions.get("track")
+                        and first_actions.get("blockages")
+                        == second_actions.get("blockages")
+                        and first_actions.get("valid_region")
+                        == second_actions.get("valid_region")
+                    )
+
+                    if can_share:
+                        first_idx = first_non_direct[0]
+                        second_idx = second_non_direct[0]
+                        first_action_for_grasp = dict(first_actions["actions"][first_idx])
+                        second_action_for_grasp = dict(second_actions["actions"][second_idx])
+                        first_action_for_grasp.pop("action", None)
+                        second_action_for_grasp.pop("action", None)
+                        if first_action_for_grasp == second_action_for_grasp:
+                            self._status(
+                                "Startup precompute optimization: reuse one grasp for "
+                                f"{first_name}.json and {second_name}.json"
+                            )
+                            scene_data, requires_pointcloud = (
+                                self._build_scene_data_for_actions(first_actions)
+                            )
+                            shared_grasps = {}
+                            if requires_pointcloud:
+                                grasp_generator = self._get_grasp_generator()
+                                shared_grasps = grasp_generator.generate_grasp(
+                                    scene_data,
+                                    first_actions["actions"][first_idx],
+                                )
+
+                            first_grasps = {}
+                            second_grasps = {}
+                            if requires_pointcloud:
+                                first_grasps[first_idx] = shared_grasps
+                                second_grasps[second_idx] = shared_grasps
+
+                            self._precomputed_action_cache[first_name] = {
+                                "scene_data": copy.deepcopy(scene_data),
+                                "grasps_by_index": first_grasps,
+                            }
+                            self._precomputed_action_cache[second_name] = {
+                                "scene_data": copy.deepcopy(scene_data),
+                                "grasps_by_index": second_grasps,
+                            }
+                            self._status(
+                                "Startup shared precompute cache ready for both cup actions"
+                            )
+                            return
+                except Exception as e:
+                    logger.exception(e)
+                    self._status(
+                        "Startup shared precompute unavailable; falling back to per-action precompute"
+                    )
+
+        for name in candidates:
+            self._precompute_action_cache(name)
+
+    def pop_precomputed_action_cache(self):
+        cache = self._precomputed_action_cache
+        self._precomputed_action_cache = {}
+        return cache
+
+    def import_precomputed_action_cache(self, cache):
+        if isinstance(cache, dict):
+            self._precomputed_action_cache.update(cache)
+
     @staticmethod
     def _extract_teapot_amount_after(full_acts):
         if not isinstance(full_acts, list) or len(full_acts) == 0:
@@ -1058,54 +1250,23 @@ class WorkflowExecutor:
         if not is_actions_format_valid_v1028(actions):
             raise ValueError(f"bad actions file format: {actions_filepath}")
 
-        extra_obstacles = actions.get("extra_obstacles", {})
-        requires_pointcloud = any(
-            action.get("action") not in self.NO_POINTCLOUD_ACTIONS
-            for action in actions["actions"]
-        )
-
-        if requires_pointcloud:
-            track_names = list(actions["track"])
-            detection_success = False
-            scene_data = None
-            while True:
-                for _ in range(20):
-                    if self.stop_event.is_set():
-                        raise InterruptedError("stopped by user")
-                    try:
-                        blockages = actions.get("blockages")
-                        valid_region = actions.get("valid_region")
-                        pc_generator = self._get_pc_generator()
-                        scene_data = pc_generator.generate_pointcloud(
-                            track_names,
-                            need_confirm=False,
-                            blockages=blockages,
-                            valid_region=valid_region,
-                        )
-                        detection_success = True
-                        break
-                    except ValueError as e:
-                        logger.exception(f"{e}, try again")
-                        time.sleep(0.1)
-                        continue
-                else:
-                    self._status("Failed to detect using groundingDINO")
-                if detection_success:
-                    break
-                time.sleep(0.3)
-
-            scene_data = silent_transform_multiple_obj_with_name_dict(
-                scene_data, self.args.transform_config
-            )
-            scene_data = create_obstacle_info(scene_data, extra_obstacles)
+        precomputed = self._precomputed_action_cache.pop(action_name, None)
+        precomputed_grasps_by_index = {}
+        if isinstance(precomputed, dict) and "scene_data" in precomputed:
+            scene_data = precomputed["scene_data"]
+            precomputed_grasps_by_index = precomputed.get("grasps_by_index", {})
+            if not isinstance(precomputed_grasps_by_index, dict):
+                precomputed_grasps_by_index = {}
+            if len(precomputed_grasps_by_index) > 0:
+                self._status(
+                    f"Using cached startup grasp for selected action: {action_name}.json"
+                )
+            self._status(f"Using precomputed GraspGen cache for {action_name}.json")
         else:
-            self._status(
-                "Skipping pointcloud generation (all actions are joint/gripper-only)"
-            )
-            scene_data = {"object_infos": {}, "obstacles": dict(extra_obstacles)}
+            scene_data, _ = self._build_scene_data_for_actions(actions)
 
         teapot_amount_after_action = None
-        for action in actions["actions"]:
+        for action_idx, action in enumerate(actions["actions"]):
             if self.stop_event.is_set():
                 raise InterruptedError("stopped by user")
 
@@ -1146,9 +1307,14 @@ class WorkflowExecutor:
                             "aborted by isaacsim, stop current action"
                         )
             else:
+                cached_grasps = precomputed_grasps_by_index.get(action_idx)
                 while True:
-                    grasp_generator = self._get_grasp_generator()
-                    grasps = grasp_generator.generate_grasp(scene_data, action)
+                    if cached_grasps is not None:
+                        grasps = cached_grasps
+                        cached_grasps = None
+                    else:
+                        grasp_generator = self._get_grasp_generator()
+                        grasps = grasp_generator.generate_grasp(scene_data, action)
                     full_acts = act_with_name(
                         action["action"],
                         action["target_name"],
@@ -1404,18 +1570,24 @@ class WorkflowUI:
         self.stop_event.clear()
         self._set_running_ui(True)
         startup_action_override = None
+        startup_precomputed_cache = None
 
         # OpenCV/Qt preview windows must run on the main thread.
         if self.args.startup_cup_auto and self.args.startup_cup_show_preview:
             detector_executor = None
             try:
-                self.status_queue.put("Running startup cup detector on main thread")
+                self.status_queue.put(
+                    "Precomputing GraspGen before startup cup detector on main thread"
+                )
                 detector_executor = WorkflowExecutor(
                     self.args,
                     self.project_root_dir,
                     self.stop_event,
                     self.status_queue,
                 )
+                detector_executor.precompute_startup_action_candidates()
+                startup_precomputed_cache = detector_executor.pop_precomputed_action_cache()
+                self.status_queue.put("Running startup cup detector on main thread")
                 startup_action_override = detector_executor.detect_startup_action()
             except InterruptedError as e:
                 self.status_queue.put(f"Workflow interrupted: {e}")
@@ -1439,7 +1611,7 @@ class WorkflowUI:
 
         self.worker = Thread(
             target=self._run_worker,
-            args=(selected, startup_action_override),
+            args=(selected, startup_action_override, startup_precomputed_cache),
             daemon=True,
         )
         self.worker.start()
@@ -1448,7 +1620,12 @@ class WorkflowUI:
         self.stop_event.set()
         self.status_queue.put("Stop requested")
 
-    def _run_worker(self, selected_action_names, startup_action_override=None):
+    def _run_worker(
+        self,
+        selected_action_names,
+        startup_action_override=None,
+        startup_precomputed_cache=None,
+    ):
         executor = None
         try:
             self.status_queue.put("Starting workflow")
@@ -1458,6 +1635,10 @@ class WorkflowUI:
                 self.stop_event,
                 self.status_queue,
             )
+            executor.import_precomputed_action_cache(startup_precomputed_cache)
+
+            if startup_action_override is None and self.args.startup_cup_auto:
+                executor.precompute_startup_action_candidates()
             startup_action = startup_action_override
             if startup_action is None:
                 startup_action = executor.detect_startup_action()
