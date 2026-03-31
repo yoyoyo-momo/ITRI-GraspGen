@@ -1033,7 +1033,9 @@ class WorkflowExecutor:
                 if action.get("action") in self.DIRECT_ACTIONS:
                     continue
                 grasp_generator = self._get_grasp_generator()
-                grasps_by_index[idx] = grasp_generator.generate_grasp(scene_data, action)
+                grasps_by_index[idx] = grasp_generator.generate_grasp(
+                    scene_data, action
+                )
 
         self._precomputed_action_cache[action_name] = {
             "scene_data": scene_data,
@@ -1099,8 +1101,12 @@ class WorkflowExecutor:
                     if can_share:
                         first_idx = first_non_direct[0]
                         second_idx = second_non_direct[0]
-                        first_action_for_grasp = dict(first_actions["actions"][first_idx])
-                        second_action_for_grasp = dict(second_actions["actions"][second_idx])
+                        first_action_for_grasp = dict(
+                            first_actions["actions"][first_idx]
+                        )
+                        second_action_for_grasp = dict(
+                            second_actions["actions"][second_idx]
+                        )
                         first_action_for_grasp.pop("action", None)
                         second_action_for_grasp.pop("action", None)
                         if first_action_for_grasp == second_action_for_grasp:
@@ -1586,7 +1592,9 @@ class WorkflowUI:
                     self.status_queue,
                 )
                 detector_executor.precompute_startup_action_candidates()
-                startup_precomputed_cache = detector_executor.pop_precomputed_action_cache()
+                startup_precomputed_cache = (
+                    detector_executor.pop_precomputed_action_cache()
+                )
                 self.status_queue.put("Running startup cup detector on main thread")
                 startup_action_override = detector_executor.detect_startup_action()
             except InterruptedError as e:
