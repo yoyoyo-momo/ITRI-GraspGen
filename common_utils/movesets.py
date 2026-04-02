@@ -11,9 +11,60 @@ logger = logging.getLogger(__name__)
 def _apply_startup_cup_offset(
     base_position: list[float], scene_data: dict, cup_index: int
 ) -> list[float]:
-    """Shift a base xyz position by startup cup ROI offset projected into robot x/y."""
+    """Shift a base xyz position by startup cup ROI offset projected into robot x/y.
+    
+    Uses pixel-to-meter conversion (meter_per_pixel) if available, otherwise falls back to gain method.
+    """
+    flip_x = scene_data.get("startup_cup_offset_flip_x", True)
+
+    # Try to use shared pixel-to-meter conversion for this ROI.
+    meter_per_pixel = scene_data.get("startup_cup_meter_per_pixel")
+    offsets_px = scene_data.get("startup_cup_offsets_px")
+
+    if isinstance(offsets_px, list) and cup_index < len(offsets_px):
+        try:
+            offset_px = offsets_px[cup_index]
+
+            if not (isinstance(meter_per_pixel, list) and len(meter_per_pixel) >= 2):
+                # Backward compatibility with per-cup conversion data shape.
+                meters_per_pixel_list = scene_data.get("startup_cup_meters_per_pixel")
+                if (
+                    isinstance(meters_per_pixel_list, list)
+                    and cup_index < len(meters_per_pixel_list)
+                ):
+                    meter_per_pixel = meters_per_pixel_list[cup_index]
+
+            if (
+                isinstance(meter_per_pixel, list)
+                and len(meter_per_pixel) >= 2
+                and isinstance(offset_px, list)
+                and len(offset_px) >= 2
+            ):
+                dx_px = float(offset_px[0])
+                dy_px = float(offset_px[1])
+                meter_per_pixel_x = float(meter_per_pixel[0])
+                meter_per_pixel_y = float(meter_per_pixel[1])
+
+                # Convert pixel offset to meters
+                dx_m = dx_px * meter_per_pixel_x
+                dy_m = dy_px * meter_per_pixel_y
+
+                shifted = list(base_position)
+                if flip_x:
+                    shifted[0] = float(shifted[0]) - dx_m
+                else:
+                    shifted[0] = float(shifted[0]) + dx_m
+                shifted[1] = float(shifted[1]) + dy_m
+                # if dy_m >= -0.2:
+                #     shifted[1] += 0.07
+                # else:
+                #     shifted[1] += 0.02
+                return shifted
+        except (TypeError, ValueError, IndexError):
+            pass  # Fall back to gain-based method
+
+    # Fall back to normalized offset with gain (legacy method)
     offsets = scene_data.get("startup_cup_offsets_norm")
-    flip_x = scene_data.get("startup_cup_offset_flip_x")
     if not isinstance(offsets, list) or cup_index >= len(offsets):
         return list(base_position)
 
@@ -35,8 +86,8 @@ def _apply_startup_cup_offset(
     else:
         shifted[0] = float(shifted[0]) + dx_norm * gain_x
     shifted[1] = float(shifted[1]) + dy_norm * gain_y
-    if dy_norm >= 0:
-        shifted[1] += 0.08
+    if dy_norm >= -0.2:
+        shifted[1] += 0.07
     else:
         shifted[1] += 0.02
     return shifted
@@ -550,12 +601,13 @@ def grab_and_place_curobo(
     before_grasp_position = before_grasp_position[:2] + [
         before_grasp_position[2] + 0.05
     ]
-    grasp_position = [p + f * 0.008 for p, f in zip(position, front, strict=False)]
-    # grasp_position = grasp_position[:2] + [grasp_position[2] - 0.007]
+    grasp_position = [p + f * 0.003 for p, f in zip(position, front, strict=False)]
+    grasp_position = grasp_position[:2] + [grasp_position[2] - 0.003]
 
     after_grasp_position = grasp_position[:2] + [grasp_position[2] + 0.10]
 
-    ready_pour_position = _apply_startup_cup_offset(args[0], scene_data, cup_index=0)
+    ready_pour_position = args[0]
+    # ready_pour_position = _apply_startup_cup_offset(args[0], scene_data, cup_index=0)
     pour_position = [
         ready_pour_position[0],
         ready_pour_position[1] - 0.05,
@@ -616,7 +668,8 @@ def grab_and_place_curobo(
 
     # after_pour_position = [ready_pour_position[0] - 0.05] + ready_pour_position[1:]
 
-    release_position = grasp_position[:2] + [grasp_position[2] + 0.004]
+    release_position = [p - f * 0.003 for p, f in zip(position, front, strict=False)]
+    release_position = release_position[:2] + [release_position[2] + 0.004]
     # after_release_position = release_position[:2] + [release_position[2] + 0.28]
     after_release_position = [
         release_position[0] - 0.15,
@@ -808,15 +861,15 @@ def grab_and_place_double(
 
     # Grasp Position
     before_grasp_position = [
-        p - f * 0.050 for p, f in zip(position, front, strict=False)
+        p - f * 0.060 for p, f in zip(position, front, strict=False)
     ]
     before_grasp_position = before_grasp_position[:2] + [
         before_grasp_position[2] + 0.05
     ]
-    grasp_position = [p + f * 0.010 for p, f in zip(position, front, strict=False)]
-    grasp_position = grasp_position[:2] + [grasp_position[2] - 0.000]
+    grasp_position = [p - f * 0.025 for p, f in zip(position, front, strict=False)]
+    grasp_position = grasp_position[:2] + [grasp_position[2] - 0.011]
 
-    after_grasp_position = grasp_position[:2] + [grasp_position[2] + 0.10]
+    after_grasp_position = grasp_position[:2] + [grasp_position[2] + 0.08]
 
     ready_pour_position = _apply_startup_cup_offset(args[0], scene_data, cup_index=0)
     pour_position = [
@@ -889,7 +942,13 @@ def grab_and_place_double(
         ready_pour_position_second[0] - 0.05
     ] + ready_pour_position_second[1:]
 
-    release_position = grasp_position[:2] + [grasp_position[2] + 0.004]
+    # release_position = [p - f * 0.006 for p, f in zip(position, front, strict=False)]
+    # release_position = release_position[:2] + [release_position[2] + 0.004]
+    release_position = [
+        grasp_position[0] - 0.0,
+        grasp_position[1],
+        grasp_position[2] + 0.004,
+    ]
     # after_release_position = release_position[:2] + [release_position[2] + 0.28]
     after_release_position = [
         release_position[0] - 0.15,
@@ -951,7 +1010,7 @@ def grab_and_place_double(
             "type": "arm",
             "goal": pour_position + pouring_rotation,
             "no_obstacles": "yesyesyes",
-            "wait_time": 5.0,
+            "wait_time": 2.5,
             "ignore_obstacles": [target_name],
         }
     )
@@ -1350,8 +1409,8 @@ def joints_rad_pour_tealeaf(
     ready_pour_joint_goal = args[4]
     pour_joint_goal = args[5]
 
-    moves.append({"type": "gripper", "grip_type": "open", "wait_time": 1.0})
-    moves.append({"type": "arm", "joints_goal": ready_joint_goal, "wait_time": 0.0})
+    # moves.append({"type": "arm", "joints_goal": ready_joint_goal, "wait_time": 0.0})
+    moves.append({"type": "gripper", "grip_type": "open", "wait_time": 0.0})
     moves.append(
         {"type": "arm", "joints_goal": before_grasp_joint_goal, "wait_time": 0.0}
     )
@@ -1400,12 +1459,13 @@ def joints_rad_pour_hotwater(
     moves.append(
         {"type": "arm", "joints_goal": ready_pour_joint_goal, "wait_time": 0.0}
     )
-    moves.append({"type": "arm", "joints_goal": pour_joint_goal, "wait_time": 0.0})
+    moves.append({"type": "arm", "joints_goal": pour_joint_goal, "wait_time": 1.0})
     moves.append(
         {"type": "arm", "joints_goal": ready_pour_joint_goal, "wait_time": 0.0}
     )
     moves.append({"type": "arm", "joints_goal": grasp_joint_goal, "wait_time": 0.0})
     moves.append({"type": "gripper", "grip_type": "open", "wait_time": 1.0})
+    # moves.append({"type": "arm", "joints_goal": before_grasp_joint_goal, "wait_time": 0.0})
     moves.append({"type": "arm", "joints_goal": ready_joint_goal, "wait_time": 0.0})
 
     full_act = {"moves": moves, "obstacles": obstacles, "skip_curobo": True}
@@ -1424,8 +1484,9 @@ def joints_rad_grasp_filter(
     ready_place_joint_goal = args[3]
     place_joint_goal = args[4]
 
-    moves.append({"type": "gripper", "grip_type": "tri open", "wait_time": 1.0})
-    moves.append({"type": "arm", "joints_goal": ready_joint_goal, "wait_time": 0.0})
+    # moves.append({"type": "gripper", "grip_type": "open", "wait_time": 0.0})
+    # moves.append({"type": "arm", "joints_goal": ready_joint_goal, "wait_time": 10.0})
+    moves.append({"type": "gripper", "grip_type": "tri open", "wait_time": 0.0})
     moves.append(
         {"type": "arm", "joints_goal": before_grasp_joint_goal, "wait_time": 0.0}
     )
@@ -1442,11 +1503,47 @@ def joints_rad_grasp_filter(
     moves.append(
         {"type": "arm", "joints_goal": ready_place_joint_goal, "wait_time": 0.0}
     )
+    # moves.append({"type": "gripper", "grip_type": "open", "wait_time": 0.0})
     moves.append({"type": "arm", "joints_goal": ready_joint_goal, "wait_time": 0.0})
 
     full_act = {"moves": moves, "obstacles": obstacles, "skip_curobo": True}
     return full_act
 
+def joints_rad_grasp_lid(
+    target_name: str, grasp: np.array, args: list, scene_data: dict
+) -> list[dict]:
+    obstacles = scene_data["obstacles"]
+    moves = []
+
+    ready_joint_goal = args[0]
+    before_grasp_joint_goal = args[1]
+    grasp_joint_goal = args[2]
+    ready_place_joint_goal = args[3]
+    place_joint_goal = args[4]
+
+    moves.append({"type": "arm", "joints_goal": ready_joint_goal, "wait_time": 0.0})
+    moves.append({"type": "gripper", "grip_type": "open", "wait_time": 10.0})
+    moves.append({"type": "gripper", "grip_type": "tri open", "wait_time": 0.0})
+    moves.append(
+        {"type": "arm", "joints_goal": before_grasp_joint_goal, "wait_time": 0.0}
+    )
+    moves.append({"type": "arm", "joints_goal": grasp_joint_goal, "wait_time": 0.0})
+    moves.append({"type": "gripper", "grip_type": "tri close", "wait_time": 1.0})
+    moves.append(
+        {"type": "arm", "joints_goal": before_grasp_joint_goal, "wait_time": 0.0}
+    )
+    moves.append(
+        {"type": "arm", "joints_goal": ready_place_joint_goal, "wait_time": 0.0}
+    )
+    moves.append({"type": "arm", "joints_goal": place_joint_goal, "wait_time": 0.0})
+    moves.append({"type": "gripper", "grip_type": "tri open", "wait_time": 1.0})
+    moves.append(
+        {"type": "arm", "joints_goal": ready_place_joint_goal, "wait_time": 0.0}
+    )
+    # moves.append({"type": "arm", "joints_goal": ready_joint_goal, "wait_time": 0.0})
+
+    full_act = {"moves": moves, "obstacles": obstacles, "skip_curobo": True}
+    return full_act
 
 def joints_rad_swap_teapot(
     target_name: str,
@@ -1608,6 +1705,7 @@ action_dict = {
     "joints_rad_pour_tealeaf": joints_rad_pour_tealeaf,
     "joints_rad_pour_hotwater": joints_rad_pour_hotwater,
     "joints_rad_grasp_filter": joints_rad_grasp_filter,
+    "joints_rad_grasp_lid": joints_rad_grasp_lid,
     "joints_rad_swap_teapot": joints_rad_swap_teapot,
     "joints_rad_swap_teapot_part1": joints_rad_swap_teapot_part1,
     "joints_rad_swap_teapot_part2": joints_rad_swap_teapot_part2,

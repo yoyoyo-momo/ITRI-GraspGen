@@ -188,7 +188,7 @@ def parse_args():
     parser.add_argument(
         "--startup-cup-stable-frames",
         type=int,
-        default=5,
+        default=10,
         help="Stable frame count required before startup action trigger",
     )
     parser.add_argument(
@@ -269,9 +269,21 @@ def parse_args():
         help="Flip X offset sign when mapping camera image X to robot X",
     )
     parser.add_argument(
+        "--startup-cup-plate-height",
+        type=float,
+        default=0.28,
+        help="Height of the plate in meters (for pixel-to-meter conversion; 0 disables)",
+    )
+    parser.add_argument(
+        "--startup-cup-plate-width",
+        type=float,
+        default=0.18,
+        help="Width of the plate in meters (for pixel-to-meter conversion; 0 disables)",
+    )
+    parser.add_argument(
         "--teapot-capacity",
         type=int,
-        default=3,
+        default=2,
         help="Tea units in a full teapot after swap",
     )
     parser.add_argument(
@@ -315,6 +327,7 @@ class WorkflowExecutor:
         "joints_rad_pour_hotwater",
         "joints_rad_pour_tealeaf",
         "joints_rad_grasp_filter",
+        "joints_rad_grasp_lid",
         "joints_rad_swap_teapot",
         "joints_rad_swap_teapot_part1",
         "joints_rad_swap_teapot_part2",
@@ -326,6 +339,7 @@ class WorkflowExecutor:
         "joints_rad_pour_hotwater",
         "joints_rad_pour_tealeaf",
         "joints_rad_grasp_filter",
+        "joints_rad_grasp_lid",
         "joints_rad_swap_teapot",
         "joints_rad_swap_teapot_part1",
         "joints_rad_swap_teapot_part2",
@@ -348,6 +362,8 @@ class WorkflowExecutor:
         self.startup_cup_cap = None
         self.startup_cup_roi = None
         self.startup_cup_offsets_norm = []
+        self.startup_cup_offsets_px = []
+        self.startup_cup_meter_per_pixel = [0.0, 0.0]
         self.startup_cup_boxes = []
         self._precomputed_action_cache = {}
 
@@ -470,35 +486,42 @@ class WorkflowExecutor:
     def _center_in_roi(box, roi) -> bool:
         x1, y1, x2, y2 = [int(v) for v in box]
         cx = (x1 + x2) / 2.0
-        cy = (y1 + y2) / 2.0
+        # cy = (y1 + y2) / 2.0
+        cy_bottom = y2
         rx1, ry1, rx2, ry2 = roi
-        return rx1 <= cx <= rx2 and ry1 <= cy <= ry2
+        return rx1 <= cx <= rx2 and ry1 <= cy_bottom <= ry2
 
     @staticmethod
     def _cup_detection_from_box(box, roi):
+        """Detect cup from bounding box, using bbox bottom for y offset."""
         x1, y1, x2, y2 = [int(v) for v in box.box]
         cx = (x1 + x2) / 2.0
-        cy = (y1 + y2) / 2.0
+        cy_center = (y1 + y2) / 2.0
+        cy_bottom = y2  # Use bottom of bbox for y offset
 
         rx1, ry1, rx2, ry2 = roi
         roi_cx = (rx1 + rx2) / 2.0
-        roi_cy = (ry1 + ry2) / 2.0
+        roi_bottom = ry2  # Compare with ROI bottom too
         roi_w = max(1.0, float(rx2 - rx1))
         roi_h = max(1.0, float(ry2 - ry1))
 
+        # Offset calculation using bbox bottom instead of center
         dx_px = cx - roi_cx
-        dy_px = cy - roi_cy
+        dy_px = cy_bottom - roi_bottom
         dx_norm = dx_px / roi_w
         dy_norm = dy_px / roi_h
 
-        return {
+        result = {
             "box": [x1, y1, x2, y2],
-            "center": [cx, cy],
+            "center": [cx, cy_center],
+            "bottom": cy_bottom,
             "offset_px": [dx_px, dy_px],
             "offset_norm": [dx_norm, dy_norm],
             "phrase": str(box.phrase),
             "score": float(box.logits),
         }
+
+        return result
 
     def _get_cups_in_roi(self, color_bgr, roi) -> list[dict]:
         pc_generator = self._get_pc_generator()
@@ -692,6 +715,24 @@ class WorkflowExecutor:
                     ]
                     for cup in cups_in_roi
                 ]
+                self.startup_cup_offsets_px = [
+                    [
+                        float(cup["offset_px"][0]),
+                        float(cup["offset_px"][1]),
+                    ]
+                    for cup in cups_in_roi
+                ]
+                roi_w = max(1.0, float(roi[2] - roi[0]))
+                roi_h = max(1.0, float(roi[3] - roi[1]))
+                plate_w = float(self.args.startup_cup_plate_width)
+                plate_h = float(self.args.startup_cup_plate_height)
+                if plate_w > 0 and plate_h > 0:
+                    self.startup_cup_meter_per_pixel = [
+                        plate_w / roi_w,
+                        plate_h / roi_h,
+                    ]
+                else:
+                    self.startup_cup_meter_per_pixel = [0.0, 0.0]
                 self.startup_cup_boxes = [list(cup["box"]) for cup in cups_in_roi]
 
                 action_name = (
@@ -702,7 +743,7 @@ class WorkflowExecutor:
                 self._load_actions_json(action_name)
                 self._status(
                     f"Startup cup detector selected action: {action_name}.json, "
-                    f"offsets_norm={self.startup_cup_offsets_norm}"
+                    f"offsets_norm={self.startup_cup_offsets_px}"
                 )
                 if save_preview:
                     self._save_startup_cup_preview(
@@ -929,6 +970,13 @@ class WorkflowExecutor:
             scene_data["startup_cup_offsets_norm"] = [
                 [float(v[0]), float(v[1])] for v in self.startup_cup_offsets_norm
             ]
+            scene_data["startup_cup_offsets_px"] = [
+                [float(v[0]), float(v[1])] for v in self.startup_cup_offsets_px
+            ]
+            scene_data["startup_cup_meter_per_pixel"] = [
+                float(self.startup_cup_meter_per_pixel[0]),
+                float(self.startup_cup_meter_per_pixel[1]),
+            ]
             scene_data["startup_cup_boxes"] = [list(b) for b in self.startup_cup_boxes]
         scene_data["startup_cup_offset_gain_x"] = float(
             self.args.startup_cup_offset_gain_x
@@ -938,6 +986,12 @@ class WorkflowExecutor:
         )
         scene_data["startup_cup_offset_flip_x"] = bool(
             self.args.startup_cup_offset_flip_x
+        )
+        scene_data["startup_cup_plate_height_m"] = float(
+            self.args.startup_cup_plate_height
+        )
+        scene_data["startup_cup_plate_width_m"] = float(
+            self.args.startup_cup_plate_width
         )
 
     def _get_teapot_swap_action_args(self):
@@ -1101,14 +1155,26 @@ class WorkflowExecutor:
                     if can_share:
                         first_idx = first_non_direct[0]
                         second_idx = second_non_direct[0]
-                        first_action_for_grasp = dict(
+
+                        # Only compare fields that influence grasp generation.
+                        # Action args can differ (e.g., different cup placement targets)
+                        # while still sharing the same grasp.
+                        def _grasp_signature(action_dict):
+                            qualifier_kwargs = action_dict.get("qualifier_kwargs", {})
+                            if not isinstance(qualifier_kwargs, dict):
+                                qualifier_kwargs = {}
+                            return {
+                                "target_name": action_dict.get("target_name"),
+                                "qualifier": action_dict.get("qualifier"),
+                                "qualifier_kwargs": qualifier_kwargs,
+                            }
+
+                        first_action_for_grasp = _grasp_signature(
                             first_actions["actions"][first_idx]
                         )
-                        second_action_for_grasp = dict(
+                        second_action_for_grasp = _grasp_signature(
                             second_actions["actions"][second_idx]
                         )
-                        first_action_for_grasp.pop("action", None)
-                        second_action_for_grasp.pop("action", None)
                         if first_action_for_grasp == second_action_for_grasp:
                             self._status(
                                 "Startup precompute optimization: reuse one grasp for "
