@@ -12,7 +12,7 @@ def _apply_startup_cup_offset(
     base_position: list[float], scene_data: dict, cup_index: int
 ) -> list[float]:
     """Shift a base xyz position by startup cup ROI offset projected into robot x/y.
-    
+
     Uses pixel-to-meter conversion (meter_per_pixel) if available, otherwise falls back to gain method.
     """
     flip_x = scene_data.get("startup_cup_offset_flip_x", True)
@@ -28,9 +28,8 @@ def _apply_startup_cup_offset(
             if not (isinstance(meter_per_pixel, list) and len(meter_per_pixel) >= 2):
                 # Backward compatibility with per-cup conversion data shape.
                 meters_per_pixel_list = scene_data.get("startup_cup_meters_per_pixel")
-                if (
-                    isinstance(meters_per_pixel_list, list)
-                    and cup_index < len(meters_per_pixel_list)
+                if isinstance(meters_per_pixel_list, list) and cup_index < len(
+                    meters_per_pixel_list
                 ):
                     meter_per_pixel = meters_per_pixel_list[cup_index]
 
@@ -1509,6 +1508,7 @@ def joints_rad_grasp_filter(
     full_act = {"moves": moves, "obstacles": obstacles, "skip_curobo": True}
     return full_act
 
+
 def joints_rad_grasp_lid(
     target_name: str, grasp: np.array, args: list, scene_data: dict
 ) -> list[dict]:
@@ -1544,6 +1544,7 @@ def joints_rad_grasp_lid(
 
     full_act = {"moves": moves, "obstacles": obstacles, "skip_curobo": True}
     return full_act
+
 
 def joints_rad_swap_teapot(
     target_name: str,
