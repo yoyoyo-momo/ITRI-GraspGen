@@ -106,11 +106,6 @@ def teapot_lid_qualifier(
     if abs(left[2]) > 0.1:
         return False
 
-    # if position[0] < min_point[0] + (max_point[0] - min_point[0]) * 0.5:  # too left
-    #     return False
-    # if position[0] > min_point[0] + (max_point[0] - min_point[0]) * 0.5:  # too right
-    #     return False
-
     return True
 
 
@@ -126,7 +121,7 @@ def teapot_qualifier(
     left, up, front = get_left_up_and_front(grasp)
 
     # Prevent top-down approach
-    if up[2] < 0.97:
+    if up[2] < 0.98:
         return False
 
     if front[0] < 0:
@@ -136,9 +131,7 @@ def teapot_qualifier(
     horizontal_position = np.array([position[0], position[1], 0])
     horizontal_min_point = np.array([min_point[0], min_point[1], 0])
     horizontal_distance = np.linalg.norm(horizontal_position - horizontal_min_point)
-    if (
-        horizontal_distance > 0.16
-    ):  # too close to the center, likely to collide with the lid
+    if horizontal_distance > 0.15:
         return False
 
     # get the angle between the front vector and min_point-to-max_point vector in the horizontal plane
@@ -151,29 +144,8 @@ def teapot_qualifier(
         horizontal_axis /= np.linalg.norm(horizontal_axis)
         dot_product = np.clip(np.dot(horizontal_front, horizontal_axis), -1.0, 1.0)
         angle = np.arccos(dot_product)
-        if abs(angle) > np.deg2rad(16):  #         return False
+        if abs(angle) > np.deg2rad(8):
             return False
-
-    # if left[0] < -0.3 or left[0] > 0.3:
-    #     return False
-
-    # if left[2] > 0.2:
-    #     return False
-
-    # if position[0] > min_point[0] + (max_point[0] - min_point[0]) * 0.5:  # too forward
-    #     return False
-    # if position[0] < min_point[0] + (max_point[0] - min_point[0]) * (
-    #     -0.9
-    # ):  # too backward
-    # return False
-
-    # Optional side-dependent preference from teapot handle detector.
-    # If handle is on the left, prefer front[1] >= 0 (approach from right side),
-    # and vice versa when handle is on the right.
-    # if handle_side == "left" and front[1] < 0:
-    #     return False
-    # if handle_side == "right" and front[1] > 0:
-    #     return False
 
     return True
 

@@ -349,22 +349,7 @@ def main():
             args.external_robot_configs_path
         )
     j_names = robot_cfg["kinematics"]["cspace"]["joint_names"]
-    # default_config = [
-    #     1.37296326,
-    #     0.08553859,
-    #     1.05554023,
-    #     2.76803983,
-    #     -1.48792809,
-    #     3.09947786,
-    # ]
-    default_config = [
-        0.09911725,
-        -0.16612044,
-        2.14949515,
-        1.24848637,
-        -1.49436836,
-        3.07333283,
-    ]
+
     robot, robot_prim_path = add_robot_to_scene(
         robot_cfg,
         my_world,
@@ -411,22 +396,9 @@ def main():
     planned_action_moves: list = []
     idx_list = [0, 1, 2, 3, 4, 5]
     temp_cuboid_paths = []
-    # default_config = [
-    #     1.37296326,
-    #     0.08553859,
-    #     1.05554023,
-    #     2.76803983,
-    #     -1.48792809,
-    #     3.09947786,
-    # ]
-    default_config = [
-        0.0991,
-        -0.4892,
-        2.1493,
-        1.5596,
-        -1.4944,
-        3.0737
-    ]
+
+    default_config = [0.0991, -0.4892, 2.1493, 1.5596, -1.4944, 3.0737]
+
     last_joint_states = default_config
     temp_cuboid_paths = []
     common_js_names = ["joint_1", "joint_2", "joint_3", "joint_4", "joint_5", "joint_6"]
@@ -499,6 +471,12 @@ def main():
                                 "wait_time": move["wait_time"],
                                 "joints_values": positions,
                             }
+                            if "custom_vel" in move:
+                                ROS2_move["custom_vel"] = move["custom_vel"]
+                            if "custom_acc" in move:
+                                ROS2_move["custom_acc"] = move["custom_acc"]
+                            if "custom_blend" in move:
+                                ROS2_move["custom_blend"] = move["custom_blend"]
                             last_joint_states = positions[-1]
                         elif "joints_goal" in move:
                             positions = [move["joints_goal"]]
@@ -507,6 +485,12 @@ def main():
                                 "wait_time": move["wait_time"],
                                 "joints_values": positions,
                             }
+                            if "custom_vel" in move:
+                                ROS2_move["custom_vel"] = move["custom_vel"]
+                            if "custom_acc" in move:
+                                ROS2_move["custom_acc"] = move["custom_acc"]
+                            if "custom_blend" in move:
+                                ROS2_move["custom_blend"] = move["custom_blend"]
                             last_joint_states = positions[-1]
                         elif "goal" in move:
                             goal = move["goal"]
@@ -517,6 +501,10 @@ def main():
                                 "wait_time": move["wait_time"],
                                 "cartesian_poses": [xyz_mm + rpy_deg],
                             }
+                            if "custom_vel" in move:
+                                ROS2_move["custom_vel"] = move["custom_vel"]
+                            if "custom_acc" in move:
+                                ROS2_move["custom_acc"] = move["custom_acc"]
                         else:
                             print(
                                 "skip_curobo requires joints_values, joints_goal, or goal in move"
@@ -584,6 +572,12 @@ def main():
                             # "cmd_plan": cmd_plan, # only for later reuse by isaacsim, not for ROS2
                             "joints_values": positions,
                         }
+                        if "custom_vel" in move:
+                            ROS2_move["custom_vel"] = move["custom_vel"]
+                        if "custom_acc" in move:
+                            ROS2_move["custom_acc"] = move["custom_acc"]
+                        if "custom_blend" in move:
+                            ROS2_move["custom_blend"] = move["custom_blend"]
 
                         curobo_planned_action_moves.append(
                             Move(ROS2_move, new_cmd_plan)

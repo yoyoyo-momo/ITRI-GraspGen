@@ -1,0 +1,13 @@
+{
+    "steps": [
+        {
+            "startup_cup_auto_select": true
+        },
+        { "action_name": "PutBack_teapot_filter" },
+        { "action_name": "Pour_tea_leaf" },
+        { "action_name": "Pour_hot_water" },
+        { "action_name": "PutBack_teapot_lid" },
+        { "action_name": "Grasp_teapot_lid" },
+        { "action_name": "Grasp_teapot_filter" }
+    ]
+}

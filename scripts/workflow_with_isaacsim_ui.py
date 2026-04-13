@@ -233,6 +233,18 @@ def parse_args():
         help="Open interactive ROI picker and print x1,y1,x2,y2, then exit",
     )
     parser.add_argument(
+        "--loop-workflow",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Continuously repeat the selected workflow until stopped",
+    )
+    parser.add_argument(
+        "--loop-interval-sec",
+        type=float,
+        default=0.0,
+        help="Delay in seconds between workflow loops (0 means no delay)",
+    )
+    parser.add_argument(
         "--startup-cup-show-preview",
         action=argparse.BooleanOptionalAction,
         default=False,
@@ -283,7 +295,7 @@ def parse_args():
     parser.add_argument(
         "--teapot-capacity",
         type=int,
-        default=2,
+        default=1,
         help="Tea units in a full teapot after swap",
     )
     parser.add_argument(
@@ -327,7 +339,9 @@ class WorkflowExecutor:
         "joints_rad_pour_hotwater",
         "joints_rad_pour_tealeaf",
         "joints_rad_grasp_filter",
+        "joints_rad_putback_filter",
         "joints_rad_grasp_lid",
+        "joints_rad_putback_lid",
         "joints_rad_swap_teapot",
         "joints_rad_swap_teapot_part1",
         "joints_rad_swap_teapot_part2",
@@ -339,7 +353,9 @@ class WorkflowExecutor:
         "joints_rad_pour_hotwater",
         "joints_rad_pour_tealeaf",
         "joints_rad_grasp_filter",
+        "joints_rad_putback_filter",
         "joints_rad_grasp_lid",
+        "joints_rad_putback_lid",
         "joints_rad_swap_teapot",
         "joints_rad_swap_teapot_part1",
         "joints_rad_swap_teapot_part2",
@@ -626,8 +642,8 @@ class WorkflowExecutor:
         else:
             self._status(f"Failed to save startup cup preview: {out_path}")
 
-    def detect_startup_action(self) -> str | None:
-        if not getattr(self.args, "startup_cup_auto", False):
+    def detect_startup_action(self, require_auto_flag: bool = True) -> str | None:
+        if require_auto_flag and not getattr(self.args, "startup_cup_auto", False):
             return None
 
         roi = self._parse_roi_text(self.args.startup_cup_roi)
@@ -1097,8 +1113,8 @@ class WorkflowExecutor:
         }
         self._status(f"Precomputed GraspGen cache ready for {action_name}.json")
 
-    def precompute_startup_action_candidates(self):
-        if not getattr(self.args, "startup_cup_auto", False):
+    def precompute_startup_action_candidates(self, require_auto_flag: bool = True):
+        if require_auto_flag and not getattr(self.args, "startup_cup_auto", False):
             return
 
         candidates = []
@@ -1263,6 +1279,20 @@ class WorkflowExecutor:
                 raise InterruptedError("stopped by user")
             if not isinstance(step, dict):
                 raise ValueError(f"Invalid step at index {idx - 1} in {plan_path}")
+
+            if bool(step.get("startup_cup_auto_select", False)):
+                self._status(f"[Plan {idx}/{len(steps)}] startup_cup_auto_select")
+                self.precompute_startup_action_candidates(require_auto_flag=False)
+                selected_action = self.detect_startup_action(require_auto_flag=False)
+                if not isinstance(selected_action, str) or not selected_action.strip():
+                    raise ValueError(
+                        "startup_cup_auto_select did not produce a valid action"
+                    )
+                self._status(
+                    f"startup_cup_auto_select chose action: {selected_action}.json"
+                )
+                self.run_action_file(selected_action, qualifier_context=context)
+                continue
 
             action_name = step.get("action_name")
             if not isinstance(action_name, str) or not action_name.strip():
@@ -1710,22 +1740,78 @@ class WorkflowUI:
                 self.status_queue,
             )
             executor.import_precomputed_action_cache(startup_precomputed_cache)
+            has_plan_level_startup_detect = False
+            for action_name in selected_action_names:
+                try:
+                    data, _ = executor._load_actions_json(action_name)
+                except Exception:
+                    continue
+                if isinstance(data, dict) and isinstance(data.get("steps"), list):
+                    for step in data["steps"]:
+                        if isinstance(step, dict) and bool(
+                            step.get("startup_cup_auto_select", False)
+                        ):
+                            has_plan_level_startup_detect = True
+                            break
+                if has_plan_level_startup_detect:
+                    break
 
-            if startup_action_override is None and self.args.startup_cup_auto:
-                executor.precompute_startup_action_candidates()
-            startup_action = startup_action_override
-            if startup_action is None:
-                startup_action = executor.detect_startup_action()
-            if startup_action is not None:
-                selected_action_names = [startup_action] + list(selected_action_names)
+            if self.args.startup_cup_auto and has_plan_level_startup_detect:
+                self.status_queue.put(
+                    "Detected startup_cup_auto_select in selected plan; "
+                    "skipping outer --startup-cup-auto prepend to avoid duplicate detection"
+                )
 
-            for idx, action_name in enumerate(selected_action_names, start=1):
+            cycle_idx = 0
+            startup_override_used = False
+            while True:
                 if self.stop_event.is_set():
                     raise InterruptedError("stopped by user")
+                cycle_idx += 1
+                cycle_actions = list(selected_action_names)
+
+                if self.args.startup_cup_auto and not has_plan_level_startup_detect:
+                    if (
+                        startup_action_override is not None
+                        and not startup_override_used
+                    ):
+                        startup_action = startup_action_override
+                        startup_override_used = True
+                    else:
+                        executor.precompute_startup_action_candidates()
+                        startup_action = executor.detect_startup_action()
+                    if startup_action is not None:
+                        cycle_actions = [startup_action] + cycle_actions
+
+                if len(cycle_actions) == 0:
+                    raise ValueError(
+                        "No actions to run. Select at least one action or enable startup cup auto."
+                    )
+
                 self.status_queue.put(
-                    f"[{idx}/{len(selected_action_names)}] {action_name}.json"
+                    f"Starting workflow cycle {cycle_idx} with {len(cycle_actions)} action(s)"
                 )
-                executor.run_entry(action_name)
+                for idx, action_name in enumerate(cycle_actions, start=1):
+                    if self.stop_event.is_set():
+                        raise InterruptedError("stopped by user")
+                    self.status_queue.put(
+                        f"[Cycle {cycle_idx} | {idx}/{len(cycle_actions)}] "
+                        f"{action_name}.json"
+                    )
+                    executor.run_entry(action_name)
+
+                if not self.args.loop_workflow:
+                    break
+
+                delay_sec = max(0.0, float(self.args.loop_interval_sec))
+                self.status_queue.put(f"Cycle {cycle_idx} completed")
+                if delay_sec > 0:
+                    start_wait = time.time()
+                    while time.time() - start_wait < delay_sec:
+                        if self.stop_event.is_set():
+                            raise InterruptedError("stopped by user")
+                        time.sleep(0.05)
+
             self.status_queue.put("All selected actions completed")
         except InterruptedError as e:
             self.status_queue.put(f"Workflow interrupted: {e}")

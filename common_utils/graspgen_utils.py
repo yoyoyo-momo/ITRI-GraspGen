@@ -384,8 +384,8 @@ class GraspGeneratorUI:
         grasps, grasp_conf = GraspGenSampler.run_inference(
             obj_pc,
             self.grasp_sampler,
-            grasp_threshold=0.5,
-            num_grasps=200,
+            grasp_threshold=0.6,
+            num_grasps=500,
             # topk_num_grasps=5,
             min_grasps=80,
             max_tries=20,

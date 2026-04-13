@@ -222,6 +222,12 @@ class TMRobotController(Node):
                 self.append_jpp(joints, vel=vel, acc=acc, blend=blend)
             self.append_jpp(goal_degree, vel=vel, acc=acc, blend=blend)
         elif data["type"] == "PTP":
+            vel = data.get("custom_vel")
+            if vel is None:
+                vel = 20
+            acc = data.get("custom_acc")
+            if acc is None:
+                acc = 20
             cartesian_poses_mm_degree = data["cartesian_poses"]
             self.goal_cartesian_pose = cartesian_poses_mm_degree.pop()
             accepted_cartesion_poses = []
@@ -234,8 +240,8 @@ class TMRobotController(Node):
                 ):
                     accepted_cartesion_poses.append(cartesian_pose)
             for cartesian_pose in accepted_cartesion_poses:
-                self.append_ptp(cartesian_pose)
-            self.append_ptp(self.goal_cartesian_pose)
+                self.append_ptp(cartesian_pose, vel=vel, acc=acc)
+            self.append_ptp(self.goal_cartesian_pose, vel=vel, acc=acc)
         elif data["type"] == "gripper":
             logger.debug(data["grip_type"])
             action_name = GRIP_TYPE_TO_ACTION.get(data["grip_type"])
@@ -272,6 +278,7 @@ class TMRobotController(Node):
         try:
             self.dxl_controller.enable_torque()
             self.dxl_controller.set_profile(acc=50, vel=100, cur=150)
+            self.dxl_controller.set_PID(p=1200, i=0, d=1000)
             logger.info("✅ Dynamixel initialized")
         except Exception as e:
             logger.error(f"Failed to initialize Dynamixel controller: {e}")

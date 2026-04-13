@@ -3,18 +3,18 @@
     [
         [0, 0, 0, 0]
     ],
-    "track": ["black cup"],
+    "track": ["black teapot"],
     "extra_obstacles": {
 
     },
     "actions":
     [
         {
-            "target_name": "black cup",
+            "target_name": "black teapot",
             "qualifier": "teapot_qualifier",
             "action": "grab_and_place_double",
             "args": [
-                [0.66, 0.06, 0.30]
+                [0.672, 0.08, 0.30]
             ]
         }
     ]
