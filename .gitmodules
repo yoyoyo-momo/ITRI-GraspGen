@@ -6,7 +6,8 @@
 	url = https://github.com/NVlabs/FoundationStereo.git
 [submodule "Third_Party/GroundingDINO"]
 	path = Third_Party/GroundingDINO
-	url = https://github.com/IDEA-Research/GroundingDINO.git
+	url = https://github.com/yoyoyo-momo/GroundingDINO.git
+	branch = cuda13-compat
 [submodule "Third_Party/GraspGen"]
 	path = Third_Party/GraspGen
 	url = https://github.com/NVlabs/GraspGen.git
