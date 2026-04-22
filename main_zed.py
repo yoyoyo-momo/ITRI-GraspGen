@@ -10,8 +10,10 @@ import json
 import datetime
 import pye57
 import sys
+from pathlib import Path
 
-sys.path.insert(0, os.path.expanduser("~/Third_Party"))
+# Project root dir
+PROJECT_ROOT_DIR = Path(__file__).resolve().parents[1]
 
 from src.stereo_utils2 import FoundationStereoModel
 from src.yolo_inference import YOLOv5Detector
