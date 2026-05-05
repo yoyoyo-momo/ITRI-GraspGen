@@ -484,50 +484,91 @@ def grab_and_pour_and_place_back_curobo_by_rotation(
     return full_act
 
 
-def grab_and_drop(grasp: np.array, args: list, scene_data: dict) -> list[dict]:
+def grab_and_drop(target_name: str, grasp: np.array, args: list, scene_data: dict) -> list[dict]:
     moves = []
     # fetch basic infos
     position = grasp[:3, 3].tolist()
+    obstacles = scene_data["obstacles"]
     position = [p * 1000 for p in position]
-    euler_orientation = list(trimesh.transformations.euler_from_matrix(grasp))
-    euler_orientation = np.rad2deg(euler_orientation).tolist()
+    # euler_orientation = list(trimesh.transformations.euler_from_matrix(grasp))
+    # euler_orientation = np.rad2deg(euler_orientation).tolist()
+    quaternion_orientation = list(trimesh.transformations.quaternion_from_matrix(grasp))
     _, _, front = get_left_up_and_front(grasp)
     front = front.tolist()
     # specific drop point
-    drop_pose = args[0]
+    # drop_pose = args[0]
+    tea_amount = scene_data.get("teapot_tea_amount", 0)
 
-    before_grasp_position = [p - f * 60 for p, f in zip(position, front, strict=False)]
-    grasp_position = [p + f * 50 for p, f in zip(position, front, strict=False)]
-    after_grasp_position = grasp_position[:2] + [grasp_position[2] + 200]
+    grasp_angle = 0
+    gz_rotation = trimesh.transformations.quaternion_about_axis(grasp_angle, [0, 0, 1])
+    gy_rotation = trimesh.transformations.quaternion_about_axis(grasp_angle, [0, 1, 0])
+    gx_rotation = trimesh.transformations.quaternion_about_axis(grasp_angle, [1, 0, 0])
+
+    q_base = np.array([0.5, 0.5, 0.5, 0.5])
+    grasp_rotation = trimesh.transformations.quaternion_multiply(
+        gz_rotation, q_base
+    ).tolist()
+    grasp_rotation = trimesh.transformations.quaternion_multiply(
+        gy_rotation, grasp_rotation
+    ).tolist()
+    grasp_rotation = trimesh.transformations.quaternion_multiply(
+        gx_rotation, grasp_rotation
+    ).tolist()
+
+    grasp_position = [p + f * 0 for p, f in zip(position, front, strict=False)]
+    before_grasp_position = [grasp_position[0] - 0.05, grasp_position[1], grasp_position[2]]
+    after_grasp_position = grasp_position[:2] + [grasp_position[2] + 20]
+    drop_position = grasp_position[:2] + [grasp_position[2] + 0.005]
     # forward_signal = HOME_SIGNAL
     # forward_signal[0] += 200
     # moves.append({"type": "move_arm", "goal": forward_signal, "wait_time": 0.0})
+    moves.append({"type": "gripper", "grip_type": "open", "wait_time": 0.5})
     moves.append(
         {
-            "type": "move_arm",
-            "goal": before_grasp_position + euler_orientation,
+            "type": "arm",
+            "goal": before_grasp_position + quaternion_orientation,
             "wait_time": 0.0,
+            "no_obstacles": "yesyesyes",
+            "ignore_obstacles": [target_name],
         }
     )
     moves.append(
         {
-            "type": "move_arm",
-            "goal": grasp_position + euler_orientation,
+            "type": "arm",
+            "goal": grasp_position + quaternion_orientation,
             "wait_time": 0.0,
+            "no_obstacles": "yesyesyes",
+            "ignore_obstacles": [target_name],
         }
     )
-    moves.append({"type": "gripper", "goal": "grab"})
+    moves.append({"type": "gripper", "grip_type": "grasp", "wait_time": 1.0})
     moves.append(
         {
-            "type": "move_arm",
-            "goal": after_grasp_position + euler_orientation,
+            "type": "arm",
+            "goal": after_grasp_position + quaternion_orientation,
             "wait_time": 0.0,
+            "no_obstacles": "yesyesyes",
+            "ignore_obstacles": [target_name],
         }
     )
-    moves.append({"type": "move_arm", "goal": drop_pose, "wait_time": 0.5})
-    moves.append({"type": "gripper", "goal": "release"})
-    moves.append({"type": "move_arm", "goal": HOME_SIGNAL, "wait_time": 0.0})
-    return moves
+    moves.append(
+        {
+            "type": "arm",
+            "goal": drop_position + quaternion_orientation,
+            "wait_time": 0.0,
+            "no_obstacles": "yesyesyes",
+            "ignore_obstacles": [target_name],
+        }
+    )
+    moves.append({"type": "gripper", "grip_type": "open", "wait_time": 1.0})
+    full_act = {
+        "moves": moves,
+        "obstacles": obstacles,
+        "skip_curobo": True,
+        "teapot_tea_amount_after": int(max(0, tea_amount)),
+    }
+
+    return full_act
 
 
 def move_to(grasp: np.array, args: list, scene_data: dict) -> list[dict]:
@@ -629,9 +670,9 @@ def grab_and_place_curobo(
     before_grasp_position = before_grasp_position[:2] + [
         before_grasp_position[2] + 0.08
     ]
-    grasp_position = [p - f * 0.020 for p, f in zip(position, front, strict=False)]
+    grasp_position = [p - f * 0.030 for p, f in zip(position, front, strict=False)]
     # grasp_position = grasp_position[:2] + [grasp_position[2] + 0.020]
-    grasp_position = grasp_position[:2] + [0.040]
+    grasp_position = grasp_position[:2] + [0.002]
 
     after_grasp_position = grasp_position[:2] + [grasp_position[2] + 0.08]
 
@@ -663,9 +704,9 @@ def grab_and_place_curobo(
     ).tolist()
 
     release_position = [
-        grasp_position[0] - 0.010,
+        grasp_position[0],
         grasp_position[1],
-        grasp_position[2] + 0.004,
+        grasp_position[2] + 0.002,
     ]
 
     after_release_position = [
@@ -819,7 +860,7 @@ def grab_and_place_curobo(
         post_pour_moves.append(
             {
                 "type": "arm",
-                "goal": after_grasp_position + quaternion_orientation,
+                "goal": after_grasp_position + grasp_rotation,
                 "no_obstacles": "yesyesyes",
                 "wait_time": 0.0,
                 "ignore_obstacles": [target_name],
@@ -829,7 +870,7 @@ def grab_and_place_curobo(
         post_pour_moves.append(
             {
                 "type": "arm",
-                "goal": release_position + quaternion_orientation,
+                "goal": release_position + grasp_rotation,
                 "wait_time": 0.5,
                 "no_obstacles": "yesyesyes",
                 "ignore_obstacles": [target_name],
@@ -842,7 +883,7 @@ def grab_and_place_curobo(
         post_pour_moves.append(
             {
                 "type": "arm",
-                "goal": after_release_position + quaternion_orientation,
+                "goal": after_release_position + grasp_rotation,
                 "wait_time": 0.0,
                 "no_obstacles": "yesyesyes",
                 "ignore_obstacles": [target_name],
@@ -1235,11 +1276,11 @@ def grab_bottle_and_place_curobo(
     before_grasp_position = [
         p - f * 0.050 for p, f in zip(position, front, strict=False)
     ]
-    before_grasp_position = before_grasp_position[:2] + [before_grasp_position[2] + 0.5]
+    before_grasp_position = before_grasp_position[:2] + [before_grasp_position[2] + 0.05]
     # grasp_position = [p + f * 0.048 for p, f in zip(position, front, strict=False)]
-    grasp_position = [p - f * 0.02 for p, f in zip(position, front, strict=False)]
+    grasp_position = [p - f * 0 for p, f in zip(position, front, strict=False)]
 
-    release_position = grasp_position[:2] + [grasp_position[2] + 0.280]
+    release_position = grasp_position[:2] + [grasp_position[2] + 0.005]
     after_release_position = (
         [release_position[0] - 0.05]
         + [release_position[1] - 0.05]
@@ -1262,7 +1303,7 @@ def grab_bottle_and_place_curobo(
             "ignore_obstacles": [target_name],
         }
     )
-    moves.append({"type": "gripper", "grip_type": "close", "wait_time": 1.0})
+    moves.append({"type": "gripper", "grip_type": "grasp", "wait_time": 1.0})
 
     # moves.append(
     #     {
@@ -1302,7 +1343,7 @@ def grab_bottle_and_place_curobo(
         }
     )
 
-    full_act = {"moves": moves, "obstacles": obstacles}
+    full_act = {"moves": moves, "obstacles": obstacles, "skip_curobo": True}
     return full_act
 
 

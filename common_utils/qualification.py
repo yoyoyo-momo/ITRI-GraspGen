@@ -42,16 +42,18 @@ def cup_qualifier(
 def small_cup_qualifier(grasp: np.array, mass_center, obj_std, **kwargs):
     position = grasp[:3, 3].tolist()
     left, up, front = get_left_up_and_front(grasp)
-    if up[2] < 0.7:
+    if up[2] < 0.9:
+        return False
+    if front[0] < 0:
         return False
     # Rule: planar 2D angle between grasp approach (front) vector and grasp position vector should be small
-    angle_front = np.arctan2(front[1], front[0])
-    angle_position = np.arctan2(position[1], position[0])
-    angle_diff = np.abs(angle_front - angle_position)
-    if angle_diff > np.pi:
-        angle_diff = 2 * np.pi - angle_diff
-    if angle_diff > np.deg2rad(90):
-        return False
+    # angle_front = np.arctan2(front[1], front[0])
+    # angle_position = np.arctan2(position[1], position[0])
+    # angle_diff = np.abs(angle_front - angle_position)
+    # if angle_diff > np.pi:
+    #     angle_diff = 2 * np.pi - angle_diff
+    # if angle_diff > np.deg2rad(90):
+    #     return False
 
     # if position[2] < 0.05:  # for safety
     #     return False

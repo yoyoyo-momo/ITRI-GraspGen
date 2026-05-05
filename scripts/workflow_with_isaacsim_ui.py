@@ -295,7 +295,7 @@ def parse_args():
     parser.add_argument(
         "--teapot-capacity",
         type=int,
-        default=1,
+        default=99,
         help="Tea units in a full teapot after swap",
     )
     parser.add_argument(
