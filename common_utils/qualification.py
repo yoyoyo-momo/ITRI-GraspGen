@@ -39,8 +39,24 @@ def cup_qualifier(
     return True
 
 
-def small_cup_qualifier(grasp: np.array, mass_center, obj_std, **kwargs):
+def cup_stack_qualifier(
+    grasp: np.array, min_point: np.ndarray, max_point: np.ndarray, **kwargs
+):
     position = grasp[:3, 3].tolist()
+    left, up, front = get_left_up_and_front(grasp)
+    position += front * 0.20  # offset
+    if abs(left[2]) > 0.2:
+        return False
+    if up[2] < 0.90:
+        return False
+    if front[0] < 0:
+        return False
+
+    return True
+
+
+def small_cup_qualifier(grasp: np.array, mass_center, obj_std, **kwargs):
+    # position = grasp[:3, 3].tolist()
     left, up, front = get_left_up_and_front(grasp)
     if up[2] < 0.9:
         return False
@@ -165,6 +181,7 @@ qualifier_dict = {
     "teapot_lid_qualifier": teapot_lid_qualifier,
     "teapot_qualifier": teapot_qualifier,
     "dummy_qualifier": dummy_qualifier,
+    "cup_stack_qualifier": cup_stack_qualifier,
 }
 
 
