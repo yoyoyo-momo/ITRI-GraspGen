@@ -261,7 +261,7 @@ class DynamixelController:
             else:
                 positions[dxl_id] = None
 
-        return positions
+        return positions.values()
 
     # ==============================
     # ✅ 取得目前電流（SyncRead）
@@ -403,7 +403,7 @@ class DynamixelController:
 
 
 if __name__ == "__main__":
-    dxl = DynamixelController(device_name="COM5")
+    dxl = DynamixelController(device_name="/dev/dynamixel")
 
     # dxl.reset_motors()
     # dxl.enable_torque()

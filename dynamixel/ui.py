@@ -110,6 +110,12 @@ def thumb_press():
     dxl.move_to_positions(ACTIONS["thumb press"])
 
 
+def middle_finger():
+    # print("✊ middle finger")
+    # dxl.set_profile(acc=1000, vel=1000)
+    dxl.move_to_positions(ACTIONS["middle finger"])
+
+
 # ==============================
 # UI
 # ==============================
@@ -185,6 +191,10 @@ tk.Button(
 
 tk.Button(
     root, text="ONE CLOSE", font=btn_font, command=lambda: run_in_thread(one_close)
+).pack(fill="x", pady=5)
+
+tk.Button(
+    root, text="FUCK YOU", font=btn_font, command=lambda: run_in_thread(middle_finger)
 ).pack(fill="x", pady=5)
 
 
