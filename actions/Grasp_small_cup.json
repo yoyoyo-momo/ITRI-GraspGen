@@ -1,0 +1,21 @@
+{
+    "blockages":
+    [
+        [0, 0, 0, 0]
+    ],
+    "track": ["paper cup"],
+    "extra_obstacles": {
+
+    },
+    "actions":
+    [
+        {
+            "target_name": "paper cup",
+            "qualifier": "small_cup_qualifier",
+            "action": "grab_bottle_and_place_curobo",
+            "args": [
+                [0.672, 0.075, 0.30]
+            ]
+        }
+    ]
+}

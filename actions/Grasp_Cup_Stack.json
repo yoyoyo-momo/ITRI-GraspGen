@@ -1,0 +1,21 @@
+{
+    "blockages":
+    [
+        [0, 0, 0, 0]
+    ],
+    "track": ["cup stack"],
+    "extra_obstacles": {
+
+    },
+    "actions":
+    [
+        {
+            "target_name": "cup stack",
+            "qualifier": "cup_stack_qualifier",
+            "action": "grasp_cup_stack",
+            "args": [
+                [0.6, 0.075, 0.0]
+            ]
+        }
+    ]
+}
