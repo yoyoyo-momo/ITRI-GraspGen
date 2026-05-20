@@ -1,0 +1,20 @@
+{
+    "blockages":
+    [
+        [0, 0, 0, 0]
+    ],
+    "track": ["black teapot"],
+    "extra_obstacles": {
+    },
+    "actions":
+    [
+        {
+            "target_name": "black teapot",
+            "qualifier": "teapot_qualifier",
+            "action": "move_to_grasp",
+            "args": [
+                [0.672, 0.075, 0.30]
+            ]
+        }
+    ]
+}

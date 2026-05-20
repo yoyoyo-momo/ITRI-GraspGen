@@ -30,7 +30,7 @@ def _apply_startup_cup_offset(
 
             if not (isinstance(meter_per_pixel, list) and len(meter_per_pixel) >= 2):
                 # Backward compatibility with per-cup conversion data shape.
-                meters_per_pixel_list = scene_data.get("startup_cup_meters_per_pixel")
+                meters_per_pixel_list = scene_data.get("startup_cup_meter_per_pixel")
                 if isinstance(meters_per_pixel_list, list) and cup_index < len(
                     meters_per_pixel_list
                 ):
@@ -51,16 +51,11 @@ def _apply_startup_cup_offset(
                 dx_m = dx_px * meter_per_pixel_x
                 dy_m = dy_px * meter_per_pixel_y
 
+                # logger.info([dx_m, dy_m])
+
                 shifted = list(base_position)
-                if flip_x:
-                    shifted[0] = float(shifted[0]) - dx_m
-                else:
-                    shifted[0] = float(shifted[0]) + dx_m
-                shifted[1] = float(shifted[1]) + dy_m
-                # if dy_m >= -0.2:
-                #     shifted[1] += 0.07
-                # else:
-                #     shifted[1] += 0.02
+                shifted[0] = float(shifted[0]) + dy_m
+                shifted[1] = float(shifted[1]) + dx_m
                 return shifted
                 # return base_position
         except (TypeError, ValueError, IndexError):
@@ -632,6 +627,108 @@ def open_grip(
     return full_act
 
 
+def move_to_grasp(
+    target_name: str, grasp: np.array, args: list, scene_data: dict
+) -> dict:
+    obstacles = scene_data["obstacles"]
+    # moves = []
+    # fetch basic infos
+    position = grasp[:3, 3].tolist()
+    logger.debug(position)
+    # quaternion_orientation = list(trimesh.transformations.quaternion_from_matrix(grasp))
+    _, _, front = get_left_up_and_front(grasp)
+    front = front.tolist()
+
+    start_position = [
+        0.09911725,
+        -0.4893,
+        2.1495,
+        1.5597,
+        -1.49436836,
+        3.0734,
+    ]
+
+    grasp_angle = 0
+    gz_rotation = trimesh.transformations.quaternion_about_axis(grasp_angle, [0, 0, 1])
+    gy_rotation = trimesh.transformations.quaternion_about_axis(grasp_angle, [0, 1, 0])
+    gx_rotation = trimesh.transformations.quaternion_about_axis(grasp_angle, [1, 0, 0])
+
+    q_base = np.array([0.5, 0.5, 0.5, 0.5])
+    grasp_rotation = trimesh.transformations.quaternion_multiply(
+        gz_rotation, q_base
+    ).tolist()
+    grasp_rotation = trimesh.transformations.quaternion_multiply(
+        gy_rotation, grasp_rotation
+    ).tolist()
+    grasp_rotation = trimesh.transformations.quaternion_multiply(
+        gx_rotation, grasp_rotation
+    ).tolist()
+
+    # Grasp Position
+    before_grasp_position = [
+        p - f * 0.070 for p, f in zip(position, front, strict=False)
+    ]
+    before_grasp_position = before_grasp_position[:2] + [0.002]
+
+    grasp_position = [p - f * 0.030 for p, f in zip(position, front, strict=False)]
+    # grasp_position = grasp_position[:2] + [grasp_position[2] + 0.020]
+    grasp_position = grasp_position[:2] + [0.002]
+
+    pre_grasp_moves = []
+    # pre_grasp_moves.append(
+    #     {"type": "gripper", "grip_type": "tri open", "wait_time": 1.0}
+    # )
+    pre_grasp_moves.append({"type": "gripper", "grip_type": "open", "wait_time": 1.0})
+    pre_grasp_moves.append(
+        {"type": "arm", "joints_goal": start_position, "wait_time": 0.0}
+    )
+
+    pre_grasp_moves.append(
+        {
+            "type": "arm",
+            "goal": before_grasp_position + grasp_rotation,
+            "wait_time": 0.5,
+            "no_obstacles": "yesyesyes",
+            "ignore_obstacles": [target_name],
+        }
+    )
+
+    pre_grasp_moves.append(
+        {
+            "type": "workflow_palm_adjust",
+            "camera_source": "/dev/v4l/by-id/usb-Innodesk_Innodisk_USB_Camera_0x0001-video-index0",  # or "0"
+            "camera_width": 1280,
+            "camera_height": 720,
+            "pixel_to_m": 0.0001,  # tune this for your palm camera
+            "image_rotation_cw_deg": 90.0,
+            "threshold": None,
+            "target_name": target_name,
+            "preview": True,
+            "preview_wait_ms": 1,
+            "wait_time": 0.0,
+        }
+    )
+
+    pre_grasp_moves.append(
+        {
+            "type": "arm",
+            "goal": grasp_position + grasp_rotation,
+            "wait_time": 0.5,
+            "no_obstacles": "yesyesyes",
+            "no_curobo": True,
+            "ignore_obstacles": [target_name],
+            "response_timeout_sec": 2.0,
+        }
+    )
+
+    full_act = {
+        "moves": pre_grasp_moves,
+        "obstacles": obstacles,
+        "skip_curobo": True,
+    }
+    return full_act
+
+
 def grab_and_place_curobo(
     target_name: str, grasp: np.array, args: list, scene_data: dict
 ) -> dict:
@@ -676,7 +773,7 @@ def grab_and_place_curobo(
     before_grasp_position = before_grasp_position[:2] + [
         before_grasp_position[2] + 0.08
     ]
-    grasp_position = [p - f * 0.030 for p, f in zip(position, front, strict=False)]
+    grasp_position = [p - f * 0.020 for p, f in zip(position, front, strict=False)]
     # grasp_position = grasp_position[:2] + [grasp_position[2] + 0.020]
     grasp_position = grasp_position[:2] + [0.002]
 
@@ -722,9 +819,9 @@ def grab_and_place_curobo(
     ]
 
     pre_grasp_moves = []
-    pre_grasp_moves.append(
-        {"type": "gripper", "grip_type": "tri open", "wait_time": 1.0}
-    )
+    # pre_grasp_moves.append(
+    #     {"type": "gripper", "grip_type": "tri open", "wait_time": 1.0}
+    # )
     pre_grasp_moves.append(
         {"type": "arm", "joints_goal": start_position, "wait_time": 0.0}
     )
@@ -760,6 +857,22 @@ def grab_and_place_curobo(
 
     pre_grasp_moves.append(
         {
+            "type": "workflow_palm_adjust",
+            "camera_source": "/dev/v4l/by-id/usb-Innodesk_Innodisk_USB_Camera_0x0001-video-index0",  # or "0"
+            "camera_width": 1280,
+            "camera_height": 720,
+            "pixel_to_m": 0.0001,  # tune this for your palm camera
+            "image_rotation_cw_deg": 90.0,
+            "threshold": None,
+            "target_name": target_name,
+            "preview": True,
+            "preview_wait_ms": 1,
+            "wait_time": 0.0,
+        }
+    )
+
+    pre_grasp_moves.append(
+        {
             "type": "arm",
             "goal": grasp_position + grasp_rotation,
             "wait_time": 0.5,
@@ -768,7 +881,6 @@ def grab_and_place_curobo(
             "ignore_obstacles": [target_name],
         }
     )
-
     pre_grasp_moves.append({"type": "gripper", "grip_type": "hook", "wait_time": 1.0})
     pre_grasp_moves.append({"type": "gripper", "grip_type": "aid", "wait_time": 1.0})
 
@@ -1463,19 +1575,19 @@ def grasp_cup_stack(target_name: str, grasp: np.array, args: list, scene_data: d
         3.0734,
     ]
 
-    grasp_position = [p + f * 0.0 for p, f in zip(position, front, strict=False)]
+    grasp_position = [p + f * 0.01 for p, f in zip(position, front, strict=False)]
 
     target_pc = scene_data["object_infos"][target_name]["points"]
     # z_p2 = np.percentile(target_pc[:, 2], 2)
     z_p98 = np.percentile(target_pc[:, 2], 98)
     # min_point = target_pc[np.argmin(abs(target_pc[:, 2] - z_p2))]
     max_point = target_pc[np.argmin(abs(target_pc[:, 2] - z_p98))]
-    grasp_position[2] = max_point[2] - 0.01
+    grasp_position[2] = max_point[2] - 0.055
 
     before_grasp_position = [
         p - f * 0.1 for p, f in zip(grasp_position, front, strict=False)
     ]
-    after_grasp_position = grasp_position[:2] + [grasp_position[2] + 0.15]
+    after_grasp_position = grasp_position[:2] + [grasp_position[2] + 0.25]
 
     release_position = args[0]
     # after_release_position = [p - f * 0.05 for p, f in zip(release_position, front, strict=False)]
@@ -1512,6 +1624,23 @@ def grasp_cup_stack(target_name: str, grasp: np.array, args: list, scene_data: d
             "wait_time": 0.0,
         }
     )
+
+    moves.append(
+        {
+            "type": "workflow_palm_adjust",
+            "camera_source": "/dev/v4l/by-id/usb-Innodesk_Innodisk_USB_Camera_0x0001-video-index0",  # or "0"
+            "camera_width": 1280,
+            "camera_height": 720,
+            "pixel_to_m": 0.0001,  # tune this for your palm camera
+            "image_rotation_cw_deg": 90.0,
+            "threshold": None,
+            "target_name": target_name,
+            "preview": True,
+            "preview_wait_ms": 1,
+            "wait_time": 0.0,
+        }
+    )
+
     moves.append(
         {
             "type": "arm",
@@ -1521,6 +1650,22 @@ def grasp_cup_stack(target_name: str, grasp: np.array, args: list, scene_data: d
             "no_curobo": True,
         }
     )
+
+    # moves.append({
+    # "type": "palm_adjust",
+    # "camera_source": "/dev/v4l/by-id/usb-Innodesk_Innodisk_USB_Camera_0x0001-video-index0",  # or "0"
+    # "camera_width": 1280,
+    # "camera_height": 720,
+    # "pixel_to_m": 0.0003,   # tune this for your palm camera
+    # "image_rotation_cw_deg": 90.0,
+    # "threshold": None,
+    # "adjust_z": True,
+    # "target_name": target_name,
+    # "preview": True,
+    # "preview_wait_ms": 1,
+    # "wait_time": 0.0
+    # })
+
     moves.append({"type": "gripper", "grip_type": "grasp", "wait_time": 1.0})
     moves.append(
         {
@@ -1552,7 +1697,11 @@ def grasp_cup_stack(target_name: str, grasp: np.array, args: list, scene_data: d
     )
     moves.append({"type": "arm", "joints_goal": start_position, "wait_time": 0.0})
 
-    full_act = {"moves": moves, "obstacles": obstacles}
+    for move in moves:
+        if move.get("type") == "arm":
+            move.setdefault("custom_vel", FAST_ARM_CUSTOM_VEL)
+            move.setdefault("custom_acc", FAST_ARM_CUSTOM_ACC)
+    full_act = {"moves": moves, "obstacles": obstacles, "skip_curobo": True}
     return full_act
 
 
@@ -1579,6 +1728,95 @@ def gripper_test(target_name: str, grasp: np.array, args: list, scene_data: dict
     moves.append({"type": "gripper", "grip_type": "tri close", "wait_time": 1.0})
     moves.append({"type": "gripper", "grip_type": "tri open", "wait_time": 1.0})
     full_act = {"moves": moves, "obstacles": obstacles, "skip_curobo": True}
+    return full_act
+
+
+def grasp_adjust(target_name: str, grasp: np.array, args: list, scene_data: dict):
+    obstacles = scene_data["obstacles"]
+    moves = []
+
+    position = grasp[:3, 3].tolist()
+    position = [p * 1000 for p in position]
+    # quaternion_orientation = list(trimesh.transformations.quaternion_from_matrix(grasp))
+    _, _, front = get_left_up_and_front(grasp)
+    front = front.tolist()
+
+    start_position = [
+        0.09911725,
+        -0.4893,
+        2.1495,
+        1.5597,
+        -1.49436836,
+        3.0734,
+    ]
+
+    grasp_angle = 0
+    gz_rotation = trimesh.transformations.quaternion_about_axis(grasp_angle, [0, 0, 1])
+    gy_rotation = trimesh.transformations.quaternion_about_axis(grasp_angle, [0, 1, 0])
+    gx_rotation = trimesh.transformations.quaternion_about_axis(grasp_angle, [1, 0, 0])
+
+    q_base = np.array([0.5, 0.5, 0.5, 0.5])
+    grasp_rotation = trimesh.transformations.quaternion_multiply(
+        gz_rotation, q_base
+    ).tolist()
+    grasp_rotation = trimesh.transformations.quaternion_multiply(
+        gy_rotation, grasp_rotation
+    ).tolist()
+    grasp_rotation = trimesh.transformations.quaternion_multiply(
+        gx_rotation, grasp_rotation
+    ).tolist()
+
+    before_grasp_position = [
+        p - f * 0.060 for p, f in zip(position, front, strict=False)
+    ]
+    before_grasp_position = before_grasp_position[:2] + [
+        before_grasp_position[2] + 0.08
+    ]
+    grasp_position = [p - f * 0.030 for p, f in zip(position, front, strict=False)]
+    grasp_position = grasp_position[:2] + [0.002]
+
+    pre_grasp_moves = []
+    pre_grasp_moves.append({"type": "gripper", "grip_type": "open", "wait_time": 1.0})
+    pre_grasp_moves.append(
+        {"type": "arm", "joints_goal": start_position, "wait_time": 0.0}
+    )
+    pre_grasp_moves.append(
+        {
+            "type": "arm",
+            "goal": before_grasp_position + grasp_rotation,
+            "wait_time": 0.0,
+            "no_obstacles": "yesyesyes",
+            "ignore_obstacles": [target_name],
+        }
+    )
+    pre_grasp_moves.append(
+        {
+            "type": "workflow_palm_adjust",
+            "camera_source": "usb-Innodesk_Innodisk_USB_Camera_0x0001-video-index0",
+            "camera_width": 1280,
+            "camera_height": 720,
+            "pixel_to_m": 0.001,
+            "image_rotation_cw_deg": 90.0,
+            "threshold": None,
+            "target_name": target_name,
+            "preview": True,
+            "preview_wait_ms": 1,
+            "wait_time": 0.0,
+        }
+    )
+    pre_grasp_moves.append(
+        {
+            "type": "arm",
+            "goal": grasp_position + grasp_rotation,
+            "wait_time": 0.5,
+            "no_obstacles": "yesyesyes",
+            "no_curobo": True,
+            "ignore_obstacles": [target_name],
+            "response_timeout_sec": 2.0,
+        }
+    )
+    full_act = {"moves": moves, "obstacles": obstacles, "skip_curobo": True}
+    full_act["moves"] = pre_grasp_moves
     return full_act
 
 
@@ -1975,6 +2213,7 @@ action_dict = {
     "joints_rad_swap_teapot_part1": joints_rad_swap_teapot_part1,
     "joints_rad_swap_teapot_part2": joints_rad_swap_teapot_part2,
     "grasp_cup_stack": grasp_cup_stack,
+    "move_to_grasp": move_to_grasp,
 }
 
 

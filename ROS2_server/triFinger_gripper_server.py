@@ -333,7 +333,7 @@ class TMRobotController(Node):
         if current_time - self.reached_time >= self.wait_time:
             self._handle_success()
         # handle stuck failure
-        if current_time - self.stuck_start_time >= 5:
+        if current_time - self.stuck_start_time >= 50:
             logger.debug(f"{current_time}, {self.stuck_start_time}")
             logger.error("Stuck detected.")
             self._handle_failure()

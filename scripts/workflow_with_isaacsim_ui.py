@@ -4,16 +4,21 @@ import logging
 import json
 import time
 import copy
+import sys
+import glob
 from pathlib import Path
 import tkinter as tk
 from tkinter import messagebox
 from tkinter import font as tkfont
 from threading import Thread, Event, current_thread, main_thread
 from queue import Queue, Empty
+from functools import lru_cache
 
 import numpy as np
 import cv2
+import trimesh
 from PIL import Image
+import uuid
 
 from PointCloud_Generation.pointcloud_generation import PointCloudGenerator
 from PointCloud_Generation.PC_transform import (
@@ -42,6 +47,58 @@ logging.basicConfig(level=logging.DEBUG, handlers=[handler], force=True)
 logger = logging.getLogger(__name__)
 
 
+def _extend_sys_path_for_semantic_modules():
+    """Ensure semantic-vision modules are discoverable."""
+    repo_root = os.path.abspath(
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+    )
+    candidate_paths = [
+        os.path.join(repo_root, "Third_Party", "GroundingDINO"),
+        os.path.join(repo_root, "Third_Party", "sam2"),
+    ]
+    candidate_paths.extend(
+        glob.glob(os.path.join(repo_root, ".venv", "lib", "python*", "site-packages"))
+    )
+
+    for path in candidate_paths:
+        if os.path.isdir(path) and path not in sys.path:
+            sys.path.insert(0, path)
+
+
+@lru_cache(maxsize=1)
+def _get_palm_semantic_predictors():
+    _extend_sys_path_for_semantic_modules()
+    try:
+        from PointCloud_Generation.grounding_dino_utils import GroundindDinoPredictor
+        from PointCloud_Generation import sam_utils as sam_utils_module
+
+        return (
+            GroundindDinoPredictor(),
+            sam_utils_module.load_sam_model(),
+            sam_utils_module,
+        )
+    except ModuleNotFoundError as e:
+        logger.warning(
+            "Palm semantic detection disabled (%s). Falling back to contour-based adjustment.",
+            e,
+        )
+    except Exception as e:
+        logger.warning(
+            "Palm semantic predictor initialization failed: %s. Falling back to contour-based adjustment.",
+            e,
+        )
+    return None, None, None
+
+
+def _format_target_prompt(target_name: str | None) -> str | None:
+    if target_name is None:
+        return None
+    prompt = str(target_name).replace("_", " ").strip()
+    if not prompt:
+        return None
+    return prompt if prompt.endswith(".") else f"{prompt} ."
+
+
 def _resolve_camera_source(source_text: str):
     source_text = str(source_text).strip()
     if source_text.isdigit():
@@ -61,6 +118,231 @@ def _open_2d_camera(source_text: str, width: int, height: int):
     if not cap.isOpened():
         raise ValueError(f"Failed to open startup cup camera source: {source_text}")
     return cap
+
+
+def palm_adjust(
+    camera_source,
+    width=0,
+    height=0,
+    pixel_to_m=0.001,
+    image_rotation_cw_deg=90.0,
+    threshold=None,
+    target_name=None,
+    box_threshold=0.35,
+    text_threshold=0.25,
+    erosion_iterations=1,
+    frames_warmup=5,
+    preview=False,
+    preview_wait_ms=1,
+    preview_window_name="Palm Camera Preview",
+):
+    """Capture one frame from palm camera and estimate local tool-frame y/z offsets.
+
+    Returns:
+        tuple[float, float, np.ndarray | None]: (dy_m, dz_m, annotated_frame)
+    """
+
+    source = _resolve_camera_source(camera_source)
+    cap = cv2.VideoCapture(source, cv2.CAP_V4L2)
+    mask_bool = None
+    mask_u8 = None
+    detection_mode = "none"
+    cx = None
+    cy = None
+
+    try:
+        if not cap.isOpened():
+            logger.warning("Palm camera source could not be opened: %s", source)
+            return 0.0, 0.0, None
+
+        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        if width and int(width) > 0:
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, int(width))
+        if height and int(height) > 0:
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, int(height))
+
+        for _ in range(max(0, int(frames_warmup))):
+            cap.grab()
+
+        ok, frame = cap.read()
+        if not ok or frame is None:
+            logger.warning("Palm adjust failed to read frame from source: %s", source)
+            return 0.0, 0.0, None
+
+        h, w = frame.shape[:2]
+        annotated_frame = frame.copy()
+
+        predictor, sam_predictor, sam_utils_module = _get_palm_semantic_predictors()
+        prompt = _format_target_prompt(target_name) or "palm ."
+
+        if (
+            predictor is not None
+            and sam_predictor is not None
+            and sam_utils_module is not None
+        ):
+            try:
+                boxes = predictor.predict_boxes(
+                    frame,
+                    prompt,
+                    box_threshold=float(box_threshold),
+                    text_threshold=float(text_threshold),
+                )
+                if len(boxes) > 0:
+                    best_box = max(boxes, key=lambda b: float(b.logits))
+                    x1, y1, x2, y2 = [int(v) for v in best_box.box]
+                    x1 = max(0, min(x1, w - 1))
+                    y1 = max(0, min(y1, h - 1))
+                    x2 = max(0, min(x2, w))
+                    y2 = max(0, min(y2, h))
+                    if x2 > x1 and y2 > y1:
+                        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                        mask_bool = sam_utils_module.run_sam2(
+                            sam_predictor,
+                            rgb,
+                            [x1, y1, x2, y2],
+                            iterations=max(0, int(erosion_iterations)),
+                        )
+                        if mask_bool is not None:
+                            mask_u8 = mask_bool.astype(np.uint8) * 255
+                            detection_mode = "semantic"
+                            cv2.rectangle(
+                                annotated_frame,
+                                (x1, y1),
+                                (x2, y2),
+                                (0, 255, 0),
+                                2,
+                            )
+                            cv2.putText(
+                                annotated_frame,
+                                f"{best_box.phrase}:{float(best_box.logits):.2f}",
+                                (x1, max(20, y1 - 8)),
+                                cv2.FONT_HERSHEY_SIMPLEX,
+                                0.55,
+                                (0, 255, 0),
+                                2,
+                                cv2.LINE_AA,
+                            )
+            except Exception as e:
+                logger.warning(
+                    "Palm semantic detection failed, falling back to contours: %s", e
+                )
+
+        if mask_u8 is None:
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            if threshold is None:
+                _, bin_img = cv2.threshold(
+                    gray,
+                    0,
+                    255,
+                    cv2.THRESH_BINARY + cv2.THRESH_OTSU,
+                )
+            else:
+                _, bin_img = cv2.threshold(
+                    gray,
+                    int(threshold),
+                    255,
+                    cv2.THRESH_BINARY,
+                )
+
+            black_ratio = float(np.sum(bin_img == 0)) / float(max(1, h * w))
+            if black_ratio > 0.3:
+                if threshold is None:
+                    _, bin_img = cv2.threshold(
+                        gray,
+                        0,
+                        255,
+                        cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU,
+                    )
+                else:
+                    _, bin_img = cv2.threshold(
+                        gray,
+                        int(threshold),
+                        255,
+                        cv2.THRESH_BINARY_INV,
+                    )
+
+            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+            bin_img = cv2.morphologyEx(bin_img, cv2.MORPH_OPEN, kernel, iterations=1)
+            bin_img = cv2.morphologyEx(bin_img, cv2.MORPH_CLOSE, kernel, iterations=1)
+            contours, _ = cv2.findContours(
+                bin_img,
+                cv2.RETR_EXTERNAL,
+                cv2.CHAIN_APPROX_SIMPLE,
+            )
+            min_contour_area = 500
+            contours = [c for c in contours if cv2.contourArea(c) >= min_contour_area]
+            if len(contours) > 0:
+                mask_u8 = np.zeros((h, w), dtype=np.uint8)
+                cv2.drawContours(mask_u8, contours, -1, 255, thickness=-1)
+                mask_bool = mask_u8.astype(bool)
+                detection_mode = "contour"
+
+        if mask_bool is not None:
+            ys, xs = np.where(mask_bool)
+            if len(xs) > 0 and len(ys) > 0:
+                cx = float(np.mean(xs))
+                cy = float(np.mean(ys))
+
+        cv2.drawMarker(
+            annotated_frame,
+            (w // 2, h // 2),
+            (0, 255, 255),
+            markerType=cv2.MARKER_CROSS,
+            markerSize=20,
+            thickness=2,
+        )
+
+        if mask_u8 is not None:
+            overlay = annotated_frame.copy()
+            overlay[mask_u8 > 0] = (0, 160, 255)
+            annotated_frame = cv2.addWeighted(annotated_frame, 0.72, overlay, 0.28, 0.0)
+
+        if cx is None or cy is None:
+            logger.info("Palm adjust: no valid centroid detected.")
+            return 0.0, 0.0, annotated_frame
+
+        cv2.drawMarker(
+            annotated_frame,
+            (int(cx), int(cy)),
+            (255, 0, 0),
+            markerType=cv2.MARKER_TILTED_CROSS,
+            markerSize=16,
+            thickness=2,
+        )
+        cv2.putText(
+            annotated_frame,
+            f"mode={detection_mode} centroid=({cx:.0f},{cy:.0f})",
+            (10, 26),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.65,
+            (255, 255, 255),
+            2,
+            cv2.LINE_AA,
+        )
+
+        # Live preview disabled during automated workflow (preview images are still returned
+        # and may be saved by the caller via `_save_palm_preview`).
+        # Previous behavior used `cv2.imshow()` here which interfered with background
+        # threads and showed an empty window; that has been removed.
+
+        dx_px_display = cx - (w / 2.0)
+        dy_px_display = cy - (h / 2.0)
+
+        theta = np.deg2rad(float(image_rotation_cw_deg))
+        cos_t = float(np.cos(theta))
+        sin_t = float(np.sin(theta))
+        dx_px = cos_t * dx_px_display + sin_t * dy_px_display
+        dy_px = -sin_t * dx_px_display + cos_t * dy_px_display
+
+        dy_m = float(-dx_px) * float(pixel_to_m)
+        dz_m = float(-dy_px) * float(pixel_to_m)
+        return dy_m, dz_m, annotated_frame
+    finally:
+        try:
+            cap.release()
+        except Exception:
+            pass
 
 
 def parse_args():
@@ -263,6 +545,18 @@ def parse_args():
         help="Directory to save startup cup preview images",
     )
     parser.add_argument(
+        "--palm-adjust-save-preview",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Save annotated palm-adjust preview images for debugging",
+    )
+    parser.add_argument(
+        "--palm-adjust-preview-dir",
+        type=str,
+        default="output/palm_adjust_preview",
+        help="Directory to save palm-adjust preview images",
+    )
+    parser.add_argument(
         "--startup-cup-offset-gain-x",
         type=float,
         default=0.15,
@@ -283,13 +577,13 @@ def parse_args():
     parser.add_argument(
         "--startup-cup-plate-height",
         type=float,
-        default=0.28,
+        default=0.29,
         help="Height of the plate in meters (for pixel-to-meter conversion; 0 disables)",
     )
     parser.add_argument(
         "--startup-cup-plate-width",
         type=float,
-        default=0.18,
+        default=0.37,
         help="Width of the plate in meters (for pixel-to-meter conversion; 0 disables)",
     )
     parser.add_argument(
@@ -471,10 +765,233 @@ class WorkflowExecutor:
         logger.info(text)
         self.status_queue.put(text)
 
-    def _wait_until_response(self, response):
+    def _save_palm_preview(self, annotated_frame):
+        if annotated_frame is None:
+            return ""
+        if not bool(getattr(self.args, "palm_adjust_save_preview", False)):
+            return ""
+
+        out_dir = Path(
+            str(
+                getattr(
+                    self.args,
+                    "palm_adjust_preview_dir",
+                    "output/palm_adjust_preview",
+                )
+            )
+        )
+        if not out_dir.is_absolute():
+            out_dir = Path(self.project_root_dir) / out_dir
+        try:
+            out_dir.mkdir(parents=True, exist_ok=True)
+            ts = time.strftime("%Y%m%d_%H%M%S")
+            out_path = out_dir / f"palm_preview_{ts}.png"
+            if cv2.imwrite(str(out_path), annotated_frame):
+                return str(out_path)
+        except Exception as e:
+            logger.warning("Failed to save palm preview image: %s", e)
+        return ""
+
+    @staticmethod
+    def _tool_frame_offset_to_base(goal, dy_m: float, dz_m: float):
+        if not isinstance(goal, list) or len(goal) < 3:
+            return 0.0, float(dy_m), float(dz_m)
+
+        try:
+            sample_val = abs(float(goal[0]))
+        except Exception:
+            sample_val = 0.0
+
+        scale = 1000.0 if sample_val > 10.0 else 1.0
+        local_offset = np.array([float(dy_m), float(dz_m), 0.0], dtype=float) * scale
+
+        try:
+            if len(goal) >= 7:
+                rotation = trimesh.transformations.quaternion_matrix(
+                    [float(v) for v in goal[3:7]]
+                )[:3, :3]
+            else:
+                rotation = trimesh.transformations.euler_matrix(
+                    np.deg2rad(float(goal[3])),
+                    np.deg2rad(float(goal[4])),
+                    np.deg2rad(float(goal[5])),
+                    axes="sxyz",
+                )[:3, :3]
+            base_offset = rotation @ local_offset
+            return float(base_offset[0]), float(base_offset[1]), float(base_offset[2])
+        except Exception:
+            return 0.0, float(dy_m) * scale, float(dz_m) * scale
+
+    def _apply_palm_adjust_to_move(self, move: dict, dy_m: float, dz_m: float):
+        if not isinstance(move, dict):
+            return move
+
+        adjusted_move = copy.deepcopy(move)
+        goal = adjusted_move.get("goal")
+        if not isinstance(goal, list) or len(goal) < 6:
+            return adjusted_move
+
+        add_dx, add_dy, add_dz = self._tool_frame_offset_to_base(goal, dy_m, dz_m)
+        new_goal = list(goal)
+        new_goal[0] = float(new_goal[0]) + add_dx
+        new_goal[1] = float(new_goal[1]) + add_dy
+        new_goal[2] = float(new_goal[2]) + add_dz
+        adjusted_move["goal"] = new_goal
+        adjusted_move["palm_adjust_dy_m"] = float(dy_m)
+        adjusted_move["palm_adjust_dz_m"] = float(dz_m)
+        return adjusted_move
+
+    def _send_and_wait_full_act(self, full_act: dict):
+        response_timeout_sec = self._extract_response_timeout_sec([full_act])
+        if self.args.save_fullact:
+            save_json("fullact", "fullact", [full_act])
+
+        response = self.receiver.capture_data()
+        if response is not None and response["message"] == "Abort":
+            raise InterruptedError("aborted by isaacsim, stop current action")
+
+        self.sender.send_data([full_act])
+        response = self._wait_until_response(response, timeout_sec=response_timeout_sec)
+        return response
+
+    def _action_has_palm_adjust(self, full_act: dict) -> bool:
+        if not isinstance(full_act, dict):
+            return False
+        moves = full_act.get("moves", [])
+        if not isinstance(moves, list):
+            return False
+        return any(
+            isinstance(move, dict)
+            and move.get("type") in {"palm_adjust", "workflow_palm_adjust"}
+            for move in moves
+        )
+
+    def _send_move_segment(self, segment_moves: list[dict], template_full_act: dict):
+        if len(segment_moves) == 0:
+            return {"message": "Success"}
+
+        segment_full_act = copy.deepcopy(template_full_act)
+        segment_full_act["moves"] = [copy.deepcopy(move) for move in segment_moves]
+        return self._send_and_wait_full_act(segment_full_act)
+
+    def _execute_full_act_with_palm_adjust(self, full_act: dict):
+        if not isinstance(full_act, dict):
+            raise ValueError("full_act must be a dict")
+
+        moves = full_act.get("moves", [])
+        if not isinstance(moves, list):
+            raise ValueError("full_act['moves'] must be a list")
+
+        base_full_act = copy.deepcopy(full_act)
+        base_full_act["moves"] = []
+
+        current_segment: list[dict] = []
+        response = {"message": "Success"}
+
+        idx = 0
+        while idx < len(moves):
+            move = moves[idx]
+            if not isinstance(move, dict):
+                idx += 1
+                continue
+
+            move_type = move.get("type")
+            if move_type in {"palm_adjust", "workflow_palm_adjust"}:
+                response = self._send_move_segment(current_segment, full_act)
+                current_segment = []
+                if response["message"] == "Fail":
+                    return response
+                if response["message"] == "Timeout":
+                    return response
+                if response["message"] == "Abort":
+                    raise InterruptedError("aborted by isaacsim, stop current action")
+                if response["message"] != "Success":
+                    raise ValueError(f"Unknown message {response['message']}")
+
+                target_move = None
+                target_idx = idx + 1
+                while target_idx < len(moves):
+                    candidate_move = moves[target_idx]
+                    if isinstance(candidate_move, dict):
+                        target_move = candidate_move
+                        break
+                    target_idx += 1
+
+                if target_move is None:
+                    self._status(
+                        "Palm adjust marker reached, but no following move was found"
+                    )
+                    idx += 1
+                    continue
+
+                if float(move.get("wait_time", 0.0) or 0.0) > 0:
+                    time.sleep(float(move.get("wait_time", 0.0)))
+
+                try:
+                    uid = str(uuid.uuid4())[:8]
+                    logger.info(f"Palm adjust (UI) start uid={uid} pid={os.getpid()}")
+                    dy_m, dz_m, annotated = palm_adjust(
+                        camera_source=move.get("camera_source", "0"),
+                        width=int(move.get("camera_width", 0) or 0),
+                        height=int(move.get("camera_height", 0) or 0),
+                        pixel_to_m=float(move.get("pixel_to_m", 0.001) or 0.001),
+                        image_rotation_cw_deg=float(
+                            move.get("image_rotation_cw_deg", 90.0) or 90.0
+                        ),
+                        threshold=move.get("threshold", None),
+                        target_name=move.get("target_name", None),
+                        box_threshold=float(move.get("box_threshold", 0.35) or 0.35),
+                        text_threshold=float(move.get("text_threshold", 0.25) or 0.25),
+                        erosion_iterations=int(move.get("erosion_iterations", 1) or 1),
+                        preview=bool(move.get("preview", False)),
+                        preview_wait_ms=int(move.get("preview_wait_ms", 1) or 1),
+                    )
+                    logger.info(
+                        f"Palm adjust (UI) done uid={uid} dy={float(dy_m):+.4f} dz={float(dz_m):+.4f}"
+                    )
+                    preview_path = self._save_palm_preview(annotated)
+                    if preview_path:
+                        move["preview_image"] = preview_path
+                    self._status(
+                        "Palm adjust measured after reach: "
+                        f"dy={float(dy_m):+.4f}m dz={float(dz_m):+.4f}m"
+                    )
+                except Exception as e:
+                    logger.exception("Palm adjust failed after reach: %s", e)
+                    self._status(
+                        f"Palm adjust failed after reach: {e}. Continuing without offsets."
+                    )
+                    idx += 1
+                    continue
+
+                # Append adjusted copy of the target move and skip the original
+                current_segment.append(
+                    self._apply_palm_adjust_to_move(target_move, dy_m, dz_m)
+                )
+                self._status(
+                    "Applied palm adjust to next move: "
+                    f"dy={float(dy_m):+.4f}m dz={float(dz_m):+.4f}m"
+                )
+                # Advance past the original target move to avoid sending it twice
+                idx = target_idx + 1
+                continue
+
+            current_segment.append(copy.deepcopy(move))
+            idx += 1
+
+        response = self._send_move_segment(current_segment, full_act)
+        if response["message"] == "Abort":
+            raise InterruptedError("aborted by isaacsim, stop current action")
+        return response
+
+    def _wait_until_response(self, response, timeout_sec: float | None = None):
+        start_ts = time.time()
         while response is None:
             if self.stop_event.is_set():
                 raise InterruptedError("stopped by user")
+            if timeout_sec is not None and timeout_sec > 0:
+                if (time.time() - start_ts) >= timeout_sec:
+                    return {"message": "Timeout"}
             response = self.receiver.capture_data()
             time.sleep(0.01)
         return response
@@ -1258,6 +1775,23 @@ class WorkflowExecutor:
         except (TypeError, ValueError):
             return None
 
+    @staticmethod
+    def _extract_response_timeout_sec(full_acts):
+        if not isinstance(full_acts, list) or len(full_acts) == 0:
+            return 0.0
+        timeout_sec = 0.0
+        for entry in full_acts:
+            if not isinstance(entry, dict):
+                continue
+            try:
+                timeout_sec = max(
+                    timeout_sec,
+                    float(entry.get("response_timeout_sec", 0.0)),
+                )
+            except (TypeError, ValueError):
+                continue
+        return timeout_sec
+
     def run_plan_file(self, plan_name: str):
         if self.stop_event.is_set():
             raise InterruptedError("stopped by user")
@@ -1388,26 +1922,27 @@ class WorkflowExecutor:
                     amount_after = self._extract_teapot_amount_after(full_acts)
                     if amount_after is not None:
                         teapot_amount_after_action = amount_after
-                    if self.args.save_fullact:
-                        save_json("fullact", "fullact", full_acts)
-
-                    response = self.receiver.capture_data()
-                    if response is not None and response["message"] == "Abort":
-                        raise InterruptedError(
-                            "aborted by isaacsim, stop current action"
-                        )
-
-                    self.sender.send_data(full_acts)
-                    response = self._wait_until_response(response)
+                    has_palm_adjust = self._action_has_palm_adjust(full_acts[0])
+                    response = self._execute_full_act_with_palm_adjust(full_acts[0])
 
                     if response["message"] == "Success":
                         break
+                    if response["message"] == "Timeout":
+                        self._status(
+                            f"Response timeout for action {action_name}.json; advancing to next move"
+                        )
+                        break
                     if response["message"] == "Fail":
+                        if has_palm_adjust:
+                            raise ValueError(
+                                f"Palm-adjust action {action_name}.json failed"
+                            )
                         continue
                     if response["message"] == "Abort":
                         raise InterruptedError(
                             "aborted by isaacsim, stop current action"
                         )
+                    raise ValueError(f"Unknown message {response['message']}")
             else:
                 cached_grasps = precomputed_grasps_by_index.get(action_idx)
                 while True:
@@ -1427,33 +1962,47 @@ class WorkflowExecutor:
                     amount_after = self._extract_teapot_amount_after(full_acts)
                     if amount_after is not None:
                         teapot_amount_after_action = amount_after
-                    if self.args.save_fullact:
-                        save_json("fullact", "fullact_", full_acts)
-
-                    response = self.receiver.capture_data()
-                    if response is not None and response["message"] == "Abort":
-                        raise InterruptedError(
-                            "aborted by isaacsim, stop current action"
-                        )
-
-                    self.sender.send_data(full_acts)
-                    response = self._wait_until_response(response)
+                    has_palm_adjust = self._action_has_palm_adjust(full_acts[0])
+                    response = self._execute_full_act_with_palm_adjust(full_acts[0])
 
                     if response["message"] == "Success":
                         break
+                    if response["message"] == "Timeout":
+                        self._status(
+                            f"Response timeout for action {action_name}.json; advancing to next move"
+                        )
+                        break
                     if response["message"] == "Fail":
+                        if has_palm_adjust:
+                            raise ValueError(
+                                f"Palm-adjust action {action_name}.json failed"
+                            )
                         continue
                     if response["message"] == "Abort":
                         raise InterruptedError(
                             "aborted by isaacsim, stop current action"
                         )
+                    raise ValueError(f"Unknown message {response['message']}")
 
         self.sender.send_data(["EOF"])
-        response = self._wait_until_response(self.receiver.capture_data())
-        if response["message"] != "EOF and ROS2 Complete":
-            if response["message"] == "Abort":
-                raise InterruptedError("aborted by isaacsim, stop current action")
-            raise ValueError(f"Unknown message {response['message']}")
+        logger.info(
+            "Sent EOF to bridge, waiting for 'EOF and ROS2 Complete' response (timeout 10s)"
+        )
+        response = self._wait_until_response(
+            self.receiver.capture_data(), timeout_sec=10.0
+        )
+        if response.get("message") == "Abort":
+            raise InterruptedError("aborted by isaacsim, stop current action")
+        if response.get("message") == "Timeout":
+            logger.warning(
+                "EOF response timeout (10s). Bridge may be stuck. Continuing anyway."
+            )
+        elif response.get("message") != "EOF and ROS2 Complete":
+            logger.warning(
+                f"Unexpected EOF response: {response.get('message', '?')}. Continuing anyway."
+            )
+        else:
+            logger.info("EOF handshake complete")
 
         pour_cost = self.POURING_ACTION_COSTS.get(action_name)
         if pour_cost is not None:
