@@ -14,7 +14,7 @@
             "qualifier": "cup_stack_qualifier",
             "action": "grasp_cup_stack",
             "args": [
-                [0.6, 0.075, 0.0]
+                [0.45, -0.175, 0.01]
             ]
         }
     ]
